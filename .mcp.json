@@ -7,6 +7,14 @@
         "mcp"
       ]
     },
+    "ai-elements": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://registry.ai-sdk.dev/api/mcp"
+      ]
+    },
     "github": {
       "command": "npx",
       "args": [
