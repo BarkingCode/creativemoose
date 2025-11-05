@@ -274,10 +274,9 @@ export default function CircularGallery({
                 src={item.image}
                 alt={item.text}
                 style={{
-                  maxHeight: isMobile ? '280px' : '400px',
-                  width: 'auto',
-                  height: 'auto',
-                  display: 'block'
+                  width: isMobile ? '220px' : '288px',
+                  height: isMobile ? '293px' : '384px',
+                  objectFit: 'cover'
                 }}
                 draggable={false}
               />
