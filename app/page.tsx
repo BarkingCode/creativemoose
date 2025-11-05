@@ -1,151 +1,122 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { useUser } from "@clerk/nextjs";
-import { PurchaseModal } from "@/components/purchase-modal";
-import { ResultsPage } from "@/components/results-page";
-import { CameraView } from "@/components/camera-view";
-import { CameraControls } from "@/components/camera-controls";
-import { useCamera } from "@/hooks/useCamera";
-import { useCredits } from "@/hooks/useCredits";
-import { useAutoSignIn } from "@/hooks/useAutoSignIn";
-import { usePhotoCapture } from "@/hooks/usePhotoCapture";
-import { useImageGeneration } from "@/hooks/useImageGeneration";
-import { getPreset } from "@/lib/presets";
-import { PhotoStyleId, DEFAULT_PHOTO_STYLE } from "@/lib/photo-styles";
+import { useRouter } from "next/navigation";
+import { SignInButton } from "@clerk/nextjs";
+import Image from "next/image";
+import CircularGallery from "@/components/CircularGallery";
+import { Button } from "@/components/ui/button";
+import { motion } from "framer-motion";
 
-export const dynamic = "force-dynamic";
-
-export default function Home() {
+/**
+ * Landing Page Component
+ *
+ * Clean, minimalist landing page with:
+ * - Fixed background CircularGallery with draggable images
+ * - Transparent header with logo and CTA
+ * - Bottom CTA card for user sign-up
+ *
+ * Redirects authenticated users to /generate automatically
+ */
+export default function LandingPage() {
   const { isSignedIn, isLoaded } = useUser();
-  const [selectedPreset, setSelectedPreset] = useState<string>("mapleAutumn");
-  const [isMounted, setIsMounted] = useState(false);
-  const [selectedStyle, setSelectedStyle] = useState<PhotoStyleId>(DEFAULT_PHOTO_STYLE);
+  const router = useRouter();
 
-  // Mark component as mounted (client-side only)
+  // Redirect signed-in users to /generate
   useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  // Custom hooks
-  const { stream, videoRef, canvasRef, stopCamera, restartCamera } = useCamera(isMounted);
-  const {
-    credits,
-    freeCredits,
-    videoCredits,
-    videoFreeCredits,
-    fetchCredits
-  } = useCredits(isSignedIn || false);
-  const {
-    generating,
-    results,
-    videos,
-    error,
-    showPurchaseModal,
-    setShowPurchaseModal,
-    handleGenerate,
-    resetGeneration,
-  } = useImageGeneration(isSignedIn || false, fetchCredits);
-
-  // Determine selected preset type and credit availability
-  const selectedPresetData = getPreset(selectedPreset);
-  const selectedPresetType = selectedPresetData?.type || 'image';
-
-  const hasImageCredits = (freeCredits > 0) || (credits !== null && credits > 0);
-  const hasVideoCredits = (videoFreeCredits > 0) || (videoCredits !== null && videoCredits > 0);
-  const hasCredits = selectedPresetType === 'video' ? hasVideoCredits : hasImageCredits;
-
-  const { photo, photoPreview, capturePhoto, resetPhoto } = usePhotoCapture({
-    videoRef,
-    canvasRef,
-    stream,
-    stopCamera,
-    onCapture: (file) => handleGenerate(file, selectedPreset, selectedStyle),
-  });
-
-  // Auto-open sign-in dialog for unauthenticated users
-  useAutoSignIn(isLoaded, isSignedIn || false, isMounted);
-
-  const handleBackToCapture = async () => {
-    // Reset state
-    resetGeneration();
-    resetPhoto();
-
-    // Refresh credits when going back
-    await fetchCredits();
-
-    // Restart camera
-    await restartCamera();
-  };
-
-  const handleGenerateClick = async () => {
-    if (photo) {
-      await handleGenerate(photo, selectedPreset, selectedStyle);
+    if (isLoaded && isSignedIn) {
+      router.push("/generate");
     }
-  };
+  }, [isLoaded, isSignedIn, router]);
 
-  // Show results/loading page if we have results or generating
-  if (results || videos || generating || error) {
+  // Show loading while checking auth
+  if (!isLoaded) {
     return (
-      <ResultsPage
-        images={results}
-        videos={videos}
-        onBack={handleBackToCapture}
-        generating={generating}
-        error={error}
-        generatingType={selectedPresetType}
-      />
-    );
-  }
-
-  if (!isMounted) {
-    return (
-      <div className="h-full w-full bg-[#0f0a0a] flex items-center justify-center">
-        <div className="text-white">Loading...</div>
+      <div className="h-screen w-screen bg-white flex items-center justify-center">
+        <div className="text-gray-900">Loading...</div>
       </div>
     );
   }
 
+  // Don't render landing page for signed-in users (they'll be redirected)
+  if (isSignedIn) {
+    return null;
+  }
+
+  // Prepare gallery items from /public/images/home
+  const galleryItems = [
+    { image: "/images/home/IMG_9037.jpg", text: "Example 1" },
+    { image: "/images/home/IMG_9038.jpg", text: "Example 2" },
+    { image: "/images/home/IMG_9039.jpg", text: "Example 3" },
+    { image: "/images/home/IMG_9049.jpg", text: "Example 4" },
+    { image: "/images/home/IMG_9050.jpg", text: "Example 5" },
+  ];
+
   return (
-    <div className="h-full w-full bg-[#0f0a0a] flex flex-col items-center justify-between p-4 gap-4 overflow-hidden">
-      <CameraView
-        videoRef={videoRef}
-        canvasRef={canvasRef}
-        photoPreview={photoPreview}
-        isSignedIn={isSignedIn || false}
-        freeCredits={freeCredits}
-        selectedPreset={selectedPreset}
-        onPresetChange={setSelectedPreset}
-        generating={generating}
-      />
-
-      <CameraControls
-        isSignedIn={isSignedIn || false}
-        credits={credits}
-        videoCredits={videoCredits}
-        photoPreview={photoPreview}
-        generating={generating}
-        stream={stream}
-        selectedPresetType={selectedPresetType}
-        hasCredits={hasCredits}
-        selectedStyle={selectedStyle}
-        onCapture={capturePhoto}
-        onGenerate={handleGenerateClick}
-        onPurchase={() => setShowPurchaseModal(true)}
-        onStyleChange={setSelectedStyle}
-      />
-
-      {/* Purchase Modal */}
-      {showPurchaseModal && (
-        <PurchaseModal
-          onClose={() => setShowPurchaseModal(false)}
-          onPurchaseComplete={() => {
-            setShowPurchaseModal(false);
-            handleGenerateClick();
-          }}
-          defaultCreditType={selectedPresetType}
+    <div className="relative h-screen w-screen bg-white overflow-hidden">
+      {/* Fixed Background Gallery */}
+      <div className="fixed inset-0 z-0">
+        <CircularGallery
+          items={galleryItems}
+          heading="Transform Your Photos with AI"
+          description="Create stunning AI-generated profile images with Canadian-themed presets. Drag and explore the gallery below."
         />
-      )}
+      </div>
+
+      {/* Header */}
+      <header className="fixed top-0 left-0 right-0 z-50 px-4 py-4 pointer-events-none">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-center justify-between px-6 py-3 rounded-full border border-gray-200 bg-white/80 backdrop-blur-md shadow-sm pointer-events-auto">
+            {/* Logo */}
+            <div className="flex items-center gap-3">
+              <Image
+                src="/logo.webp"
+                alt="PhotoApp Logo"
+                width={40}
+                height={40}
+                className="rounded-lg"
+              />
+            </div>
+
+            {/* Sign In Button */}
+            <SignInButton mode="modal" forceRedirectUrl="/generate">
+              <Button
+                className="rounded-full bg-black text-white hover:bg-gray-800"
+              >
+                Get Started
+              </Button>
+            </SignInButton>
+          </div>
+        </div>
+      </header>
+
+      {/* Bottom CTA Section */}
+      <div className="fixed bottom-0 left-0 right-0 z-50 px-4 py-6 pointer-events-none">
+        <div className="max-w-2xl mx-auto">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 1 }}
+            className="bg-white/90 backdrop-blur-md rounded-3xl shadow-2xl border border-gray-200 p-8 text-center pointer-events-auto"
+          >
+            <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-3">
+              Ready to Create?
+            </h2>
+            <p className="text-gray-600 mb-6 text-sm md:text-base">
+              Start generating beautiful AI photos in seconds
+            </p>
+            <SignInButton mode="modal" forceRedirectUrl="/generate">
+              <Button
+                size="lg"
+                className="text-base md:text-lg px-8 py-6 bg-black text-white hover:bg-gray-800 rounded-full shadow-lg hover:shadow-xl transition-all duration-300"
+              >
+                Start Now - It's Free
+              </Button>
+            </SignInButton>
+          </motion.div>
+        </div>
+      </div>
     </div>
   );
 }

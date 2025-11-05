@@ -87,8 +87,8 @@ export function CameraView({
           ) : (
             <SignInButton
               mode="modal"
-              forceRedirectUrl="/"
-              signUpForceRedirectUrl="/"
+              forceRedirectUrl="/generate"
+              signUpForceRedirectUrl="/generate"
             >
               <button
                 data-clerk-sign-in
