@@ -106,7 +106,7 @@ export function ResultsPage({ images, videos, onBack, generating = false, error 
             Array.from({ length: isVideo ? 1 : 4 }).map((_, index) => (
               <div
                 key={index}
-                className={`relative aspect-video rounded-3xl overflow-hidden bg-black/40 ${isVideo ? 'w-full' : ''}`}
+                className={`relative rounded-3xl overflow-hidden bg-black/40 ${isVideo ? 'w-full aspect-video' : 'aspect-[3/4]'}`}
               >
                 <Skeleton className="w-full h-full" />
                 {/* Download Icon Placeholder */}
@@ -145,13 +145,12 @@ export function ResultsPage({ images, videos, onBack, generating = false, error 
             content?.map((imageUrl, index) => (
               <div
                 key={index}
-                className="relative aspect-video rounded-3xl overflow-hidden bg-black"
+                className="relative rounded-3xl overflow-hidden bg-black flex items-center justify-center"
               >
-                <Image
+                <img
                   src={imageUrl}
                   alt={`Generated image ${index + 1}`}
-                  fill
-                  className="object-cover"
+                  className="w-full h-auto rounded-3xl"
                 />
 
                 {/* Download Button */}
