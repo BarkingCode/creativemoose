@@ -60,7 +60,7 @@ export default function LandingPage() {
         <CircularGallery
           items={galleryItems}
           heading="Transform Your Photos with AI"
-          description="Create stunning AI-generated profile images with Canadian-themed presets. Drag and explore the gallery below."
+          description="Create stunning AI-generated profile images with Canadian-themed presets."
         />
       </div>
 
