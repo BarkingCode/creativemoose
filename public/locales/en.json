@@ -1,0 +1,95 @@
+{
+  "instructions": {
+    "title": "Create AI Profile Photos",
+    "steps": [
+      {
+        "icon": "camera",
+        "title": "Take a Photo",
+        "desc": "Use your camera or upload"
+      },
+      {
+        "icon": "palette",
+        "title": "Choose a Preset",
+        "desc": "Pick a Canadian theme"
+      },
+      {
+        "icon": "sparkles",
+        "title": "Get 4 Variations",
+        "desc": "AI generates 4 unique images"
+      }
+    ],
+    "cta": "Start Creating",
+    "freeNote": "2 free generations, no signup required"
+  },
+  "loginPrompt": {
+    "title": "You've used your free tries!",
+    "subtitle": "Sign up to continue creating",
+    "googleBtn": "Continue with Google",
+    "appleBtn": "Continue with Apple",
+    "emailLabel": "Email",
+    "passwordLabel": "Password",
+    "signInBtn": "Sign In",
+    "signUpBtn": "Sign Up",
+    "otpBtn": "Send Magic Link",
+    "orDivider": "or continue with"
+  },
+  "tabs": {
+    "home": "Home",
+    "generate": "Create",
+    "gallery": "Gallery"
+  },
+  "gallery": {
+    "title": "My Photos",
+    "empty": "No photos yet. Create your first!",
+    "emptyAction": "Start Creating",
+    "share": "Share to Feed",
+    "unshare": "Make Private",
+    "delete": "Delete",
+    "deleteConfirm": "Are you sure you want to delete this image?",
+    "deleteConfirmTitle": "Delete Image",
+    "deleteCancel": "Cancel",
+    "deleteSuccess": "Image deleted",
+    "shareSuccess": "Image shared to feed",
+    "unshareSuccess": "Image made private"
+  },
+  "feed": {
+    "title": "Discover",
+    "empty": "No shared photos yet",
+    "emptySubtitle": "Be the first to share!",
+    "loadMore": "Load more"
+  },
+  "preview": {
+    "title": "Preview",
+    "shareToFeed": "Share to Feed",
+    "saveToPhotos": "Save to Photos",
+    "delete": "Delete",
+    "close": "Close"
+  },
+  "camera": {
+    "capture": "Capture",
+    "retake": "Retake",
+    "generate": "Generate",
+    "noCredits": "No credits remaining",
+    "buyCredits": "Buy Credits",
+    "freeTriesLeft": "{count} free {count, plural, one {try} other {tries}} left"
+  },
+  "splash": {
+    "tagline": "AI Profile Photos"
+  },
+  "errors": {
+    "generationFailed": "Generation failed. Please try again.",
+    "uploadFailed": "Upload failed. Please try again.",
+    "networkError": "Network error. Please check your connection.",
+    "unauthorized": "Please sign in to continue."
+  },
+  "common": {
+    "loading": "Loading...",
+    "save": "Save",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "close": "Close",
+    "back": "Back",
+    "next": "Next",
+    "done": "Done"
+  }
+}

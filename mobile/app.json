@@ -1,0 +1,83 @@
+{
+  "expo": {
+    "name": "PhotoApp",
+    "slug": "photoapp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "scheme": "photoapp",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0f0a0a"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.photoapp.mobile",
+      "infoPlist": {
+        "NSCameraUsageDescription": "PhotoApp needs camera access to take photos for AI generation",
+        "NSPhotoLibraryUsageDescription": "PhotoApp needs photo library access to select images for AI generation",
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.photoapp.mobile",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0f0a0a"
+      },
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.ACCESS_MEDIA_LOCATION",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_AUDIO"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "PhotoApp needs camera access to take photos for AI generation"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "PhotoApp needs photo library access to select images for AI generation"
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "PhotoApp needs access to save generated photos to your library",
+          "savePhotosPermission": "PhotoApp needs permission to save generated photos",
+          "isAccessMediaLocationEnabled": true
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "16c3ccb3-1179-49c3-bdd4-f1e0787152ec"
+      }
+    },
+    "owner": "boraalap"
+  }
+}

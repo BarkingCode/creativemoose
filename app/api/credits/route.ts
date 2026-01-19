@@ -1,53 +1,57 @@
 /**
- * API route to check current user's credit balance from Stripe metadata.
+ * API route to check current user's credit balance from Supabase.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
-import { getOrCreateStripeCustomer, getCustomerCredits } from "@/lib/stripe";
+import { createClient } from "@/lib/supabase/server";
+import { getCredits } from "@/lib/credits";
 
 export async function GET(req: NextRequest) {
   try {
-    const { userId } = await auth();
+    const supabase = await createClient();
 
-    if (!userId) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Get user's email from Clerk
-    const { clerkClient } = await import("@clerk/nextjs/server");
-    const client = await clerkClient();
-    const clerkUser = await client.users.getUser(userId);
+    // Get credits from Supabase
+    const creditData = await getCredits(user.id);
 
-    if (!clerkUser.primaryEmailAddress?.emailAddress) {
-      return NextResponse.json(
-        { error: "No email address found" },
-        { status: 400 }
-      );
+    if (!creditData) {
+      // Return default values if no credits record exists
+      return NextResponse.json({
+        free_credits: 1,
+        image_credits: 0,
+        video_credits: 0,
+        video_free_credits: 0,
+        total_credits: 1,
+        total_video_credits: 0,
+        total_gens: 0,
+        total_video_gens: 0,
+        lastGeneratedAt: null,
+        lastPreset: null,
+        lastVideoGeneratedAt: null,
+        lastVideoPreset: null,
+      });
     }
 
-    const email = clerkUser.primaryEmailAddress.emailAddress;
-
-    // Get or create Stripe customer
-    const customer = await getOrCreateStripeCustomer(email);
-
-    // Get credit metadata
-    const creditData = await getCustomerCredits(customer.id);
-
     return NextResponse.json({
-      customerId: customer.id,
       free_credits: creditData.free_credits,
       image_credits: creditData.image_credits,
-      video_credits: creditData.video_credits,
-      video_free_credits: creditData.video_free_credits,
+      video_credits: 0, // Video credits not in current schema, add if needed
+      video_free_credits: 0, // Video free credits not in current schema
       total_credits: creditData.free_credits + creditData.image_credits,
-      total_video_credits: creditData.video_free_credits + creditData.video_credits,
-      total_gens: creditData.total_gens,
-      total_video_gens: creditData.total_video_gens,
-      lastGeneratedAt: creditData.last_gen_at,
+      total_video_credits: 0,
+      total_gens: creditData.total_generations,
+      total_video_gens: 0,
+      lastGeneratedAt: creditData.last_generation_at,
       lastPreset: creditData.last_preset,
-      lastVideoGeneratedAt: creditData.last_video_gen_at,
-      lastVideoPreset: creditData.last_video_preset,
+      lastVideoGeneratedAt: null,
+      lastVideoPreset: null,
     });
   } catch (error) {
     console.error("Error fetching credits:", error);
