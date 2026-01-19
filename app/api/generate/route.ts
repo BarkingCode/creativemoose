@@ -1,24 +1,30 @@
 /**
  * API route for paid generation with credit deduction.
  * Validates credits, decrements, and calls NB-G2.5 for images or Veo 3.1 for videos.
+ * Uploads generated images to Supabase Storage and saves records to images table.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
-import { getOrCreateStripeCustomer, decrementCredit, decrementVideoCredit } from "@/lib/stripe";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { decrementCredit, getCredits, getTotalCredits } from "@/lib/credits";
 import { generateImages } from "@/lib/image-generation";
 import { generateVideo } from "@/lib/video-generation";
 import { getPreset, getPresetPromptsWithStyle } from "@/lib/presets";
 import { watermarkAndDownscale } from "@/lib/watermark";
+import { uploadImageBatch, generateBatchId } from "@/lib/storage";
 import crypto from "crypto";
 import { readFile } from "fs/promises";
 import path from "path";
 
 export async function POST(req: NextRequest) {
   try {
-    const { userId } = await auth();
+    const supabase = await createClient();
 
-    if (!userId) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -39,50 +45,44 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid preset" }, { status: 400 });
     }
 
-    // Get user's email from Clerk
-    const { clerkClient } = await import("@clerk/nextjs/server");
-    const client = await clerkClient();
-    const clerkUser = await client.users.getUser(userId);
+    // Check if this is a video preset
+    const isVideoPreset = preset.type === "video";
 
-    if (!clerkUser.primaryEmailAddress?.emailAddress) {
+    // Video generation not yet supported with Supabase
+    if (isVideoPreset) {
       return NextResponse.json(
-        { error: "No email address found" },
+        { error: "Video generation not yet supported" },
         { status: 400 }
       );
     }
 
-    const email = clerkUser.primaryEmailAddress.emailAddress;
+    // Check current credits
+    const creditInfo = await getCredits(user.id);
+    const totalCredits = await getTotalCredits(user.id);
+    const isFreeGeneration = (creditInfo?.total_generations || 0) === 0;
 
-    // Get or create Stripe customer
-    const customer = await getOrCreateStripeCustomer(email);
-
-    // Check if this is a free generation (first one)
-    const { getCustomerCredits } = await import("@/lib/stripe");
-    const creditInfo = await getCustomerCredits(customer.id);
-    const isFreeGeneration = creditInfo.total_gens === 0;
+    if (totalCredits <= 0) {
+      return NextResponse.json(
+        {
+          error: "Insufficient image credits",
+          creditType: "image",
+        },
+        { status: 402 }
+      );
+    }
 
     // Convert photo to base64
     const photoBuffer = Buffer.from(await photoFile.arrayBuffer());
     const photoBase64 = `data:${photoFile.type};base64,${photoBuffer.toString("base64")}`;
 
-    // Create hash for audit
-    const hash = crypto
-      .createHash("sha256")
-      .update(photoBuffer)
-      .digest("hex")
-      .substring(0, 16);
+    // Attempt to decrement credit atomically
+    const decrementResult = await decrementCredit(user.id, presetId, styleId);
 
-    // Attempt to decrement credit atomically based on preset type
-    const isVideoPreset = preset.type === 'video';
-    const success = isVideoPreset
-      ? await decrementVideoCredit(customer.id, presetId, hash, photoBuffer.length)
-      : await decrementCredit(customer.id, presetId, hash, photoBuffer.length);
-
-    if (!success) {
+    if (!decrementResult.success) {
       return NextResponse.json(
         {
-          error: `Insufficient ${isVideoPreset ? 'video' : 'image'} credits`,
-          creditType: isVideoPreset ? 'video' : 'image'
+          error: decrementResult.error || "Insufficient image credits",
+          creditType: "image",
         },
         { status: 402 }
       );
@@ -112,8 +112,14 @@ export async function POST(req: NextRequest) {
           ];
         } else {
           // Default to "With Us" preset references
-          const ref1Path = path.join(process.cwd(), "public/refs/withus_guyA.jpg");
-          const ref2Path = path.join(process.cwd(), "public/refs/withus_guyB.jpg");
+          const ref1Path = path.join(
+            process.cwd(),
+            "public/refs/withus_guyA.jpg"
+          );
+          const ref2Path = path.join(
+            process.cwd(),
+            "public/refs/withus_guyB.jpg"
+          );
 
           const ref1Buffer = await readFile(ref1Path);
           const ref2Buffer = await readFile(ref2Path);
@@ -130,54 +136,79 @@ export async function POST(req: NextRequest) {
     }
 
     // Get styled prompts based on user preference
-    const styledPrompts = getPresetPromptsWithStyle(presetId, styleId as any);
+    const styledPrompts = getPresetPromptsWithStyle(
+      presetId,
+      styleId as any
+    );
 
-    // Generate content based on preset type
-    if (isVideoPreset) {
-      // Video generation: use first prompt only, generates 1 video
-      const result = await generateVideo({
-        baseImage: photoBase64,
-        prompt: styledPrompts[0],
-      });
+    // Image generation: use all prompts, generates 4 images
+    const result = await generateImages({
+      baseImage: photoBase64,
+      referenceImages,
+      prompts: styledPrompts,
+      quality: "high",
+    });
 
-      // Note: Videos are already watermarked by Veo 3.1 using SynthID
-      // We return the video as-is without additional watermarking
-      return NextResponse.json({
-        success: true,
-        videos: [result.videoUrl],
-        metadata: result.metadata,
-        isFreeGeneration,
-        type: 'video',
-      });
-    } else {
-      // Image generation: use all prompts, generates 4 images
-      const result = await generateImages({
-        baseImage: photoBase64,
-        referenceImages,
-        prompts: styledPrompts,
-        quality: "high",
-      });
+    // Watermark all generated images
+    // Free users: watermark + downscale to 768px
+    // Paid users: watermark only, full size
+    const watermarkedImages = await Promise.all(
+      result.images.map((img) =>
+        watermarkAndDownscale(img, isFreeGeneration)
+      )
+    );
 
-      // Watermark all generated images
-      // Free users: watermark + downscale to 768px
-      // Paid users: watermark only, full size
-      const watermarkedImages = await Promise.all(
-        result.images.map((img) => watermarkAndDownscale(img, isFreeGeneration))
-      );
+    // Upload images to Supabase Storage
+    const batchId = generateBatchId();
+    const uploadResult = await uploadImageBatch(watermarkedImages, user.id, false);
 
+    if (!uploadResult.success || uploadResult.urls.length === 0) {
+      console.error("Failed to upload images to storage:", uploadResult.errors);
+      // Return base64 as fallback if storage upload fails
       return NextResponse.json({
         success: true,
         images: watermarkedImages,
         metadata: result.metadata,
         isFreeGeneration,
-        type: 'image',
+        type: "image",
+        storedToGallery: false,
       });
     }
+
+    // Save image records to database
+    const adminSupabase = createAdminClient();
+    const imageRecords = uploadResult.urls.map((url, index) => ({
+      user_id: user.id,
+      generation_batch_id: uploadResult.batchId,
+      image_url: url,
+      storage_path: uploadResult.paths[index],
+      preset_id: presetId,
+      style_id: styleId,
+      image_index: index,
+      is_public: false,
+      is_free_generation: isFreeGeneration,
+    }));
+
+    const { error: insertError } = await adminSupabase
+      .from("images")
+      .insert(imageRecords);
+
+    if (insertError) {
+      console.error("Failed to save image records:", insertError);
+      // Images are still in storage, but not tracked in DB
+    }
+
+    return NextResponse.json({
+      success: true,
+      images: uploadResult.urls, // Return storage URLs instead of base64
+      metadata: result.metadata,
+      isFreeGeneration,
+      type: "image",
+      batchId: uploadResult.batchId,
+      storedToGallery: !insertError,
+    });
   } catch (error) {
     console.error("Error generating images:", error);
-    return NextResponse.json(
-      { error: "Generation failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Generation failed" }, { status: 500 });
   }
 }

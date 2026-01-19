@@ -1,121 +1,271 @@
+/**
+ * Landing Page - Anonymous Camera-First Experience
+ *
+ * For anonymous users: Shows camera with 2 free generations
+ * For authenticated users: Redirects to tab-based home (/home)
+ *
+ * Flow:
+ * 1. First visit → Splash screen → Instructions overlay → Camera
+ * 2. Return visit → Camera directly (splash/instructions skipped)
+ * 3. After 2 free tries → Login prompt modal
+ */
+
 "use client";
 
-import { useEffect } from "react";
-import { useUser } from "@clerk/nextjs";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { SignInButton } from "@clerk/nextjs";
-import Image from "next/image";
-import CircularGallery from "@/components/CircularGallery";
-import { Button } from "@/components/ui/button";
-import { motion } from "framer-motion";
+import { useAuth } from "@/contexts/AuthContext";
+import { useAnonymousCredits } from "@/hooks/useAnonymousCredits";
+import { SplashScreen, hasSplashBeenSeen } from "@/components/splash-screen";
+import {
+  InstructionOverlay,
+  hasInstructionsBeenSeen,
+} from "@/components/instruction-overlay";
+import { LoginPromptModal } from "@/components/login-prompt-modal";
+import { CameraView } from "@/components/camera-view";
+import { CameraControls } from "@/components/camera-controls";
+import { ResultsPage } from "@/components/results-page";
+import { useCamera } from "@/hooks/useCamera";
+import { usePhotoCapture } from "@/hooks/usePhotoCapture";
+import { getPreset, getPresetPromptsWithStyle } from "@/lib/presets";
+import { PhotoStyleId, DEFAULT_PHOTO_STYLE } from "@/lib/photo-styles";
+import { Info } from "lucide-react";
 
-/**
- * Landing Page Component
- *
- * Clean, minimalist landing page with:
- * - Fixed background CircularGallery with draggable images
- * - Transparent header with logo and CTA
- * - Bottom CTA card for user sign-up
- *
- * Redirects authenticated users to /generate automatically
- */
 export default function LandingPage() {
-  const { isSignedIn, isLoaded } = useUser();
+  const { user, isLoading: authLoading } = useAuth();
   const router = useRouter();
 
-  // Redirect signed-in users to /generate
+  // Anonymous credits tracking
+  const {
+    freeTriesRemaining,
+    hasFreeTriesLeft,
+    hasExhaustedFreeTries,
+    useFreeTry,
+    isReady: creditsReady,
+  } = useAnonymousCredits();
+
+  // UI State
+  const [showSplash, setShowSplash] = useState(true);
+  const [showInstructions, setShowInstructions] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
+
+  // Generation state
+  const [selectedPreset, setSelectedPreset] = useState<string>("mapleAutumn");
+  const [selectedStyle, setSelectedStyle] =
+    useState<PhotoStyleId>(DEFAULT_PHOTO_STYLE);
+  const [generating, setGenerating] = useState(false);
+  const [results, setResults] = useState<string[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Camera hooks
+  const { stream, videoRef, canvasRef, stopCamera, restartCamera } =
+    useCamera(isMounted);
+
+  // Mark component as mounted
   useEffect(() => {
-    if (isLoaded && isSignedIn) {
-      router.push("/generate");
+    setIsMounted(true);
+  }, []);
+
+  // Redirect authenticated users to home tab
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.push("/home");
     }
-  }, [isLoaded, isSignedIn, router]);
+  }, [authLoading, user, router]);
+
+  // Determine preset type
+  const selectedPresetData = getPreset(selectedPreset);
+  const selectedPresetType = selectedPresetData?.type || "image";
+
+  // Handle splash complete
+  const handleSplashComplete = () => {
+    setShowSplash(false);
+    // Show instructions if not seen before
+    if (!hasInstructionsBeenSeen()) {
+      setShowInstructions(true);
+    }
+  };
+
+  // Handle photo capture and generation
+  const handleGenerate = async (photo: File) => {
+    // Check if user has free tries
+    if (!hasFreeTriesLeft) {
+      setShowLoginModal(true);
+      return;
+    }
+
+    setGenerating(true);
+    setError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("photo", photo);
+      formData.append("presetId", selectedPreset);
+      formData.append("styleId", selectedStyle);
+
+      const response = await fetch("/api/preview", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (data.code === "RATE_LIMITED") {
+          setShowLoginModal(true);
+          setError(null);
+        } else {
+          setError(data.error || "Generation failed");
+        }
+        return;
+      }
+
+      // Consume a free try
+      useFreeTry();
+
+      // Set results
+      setResults(data.images);
+    } catch (err) {
+      console.error("Generation error:", err);
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  // Photo capture hook
+  const { photo, photoPreview, capturePhoto, resetPhoto } = usePhotoCapture({
+    videoRef,
+    canvasRef,
+    stream,
+    stopCamera,
+    onCapture: handleGenerate,
+  });
+
+  // Handle back from results
+  const handleBackToCapture = async () => {
+    setResults(null);
+    setError(null);
+    resetPhoto();
+    await restartCamera();
+  };
+
+  // Handle capture button click
+  const handleCaptureClick = () => {
+    // Check free tries before capture
+    if (!hasFreeTriesLeft) {
+      setShowLoginModal(true);
+      return;
+    }
+    capturePhoto();
+  };
+
+  // Handle generate click (if photo already captured)
+  const handleGenerateClick = async () => {
+    if (!hasFreeTriesLeft) {
+      setShowLoginModal(true);
+      return;
+    }
+    if (photo) {
+      await handleGenerate(photo);
+    }
+  };
 
   // Show loading while checking auth
-  if (!isLoaded) {
+  if (authLoading || !isMounted || !creditsReady) {
     return (
-      <div className="h-screen w-screen bg-white flex items-center justify-center">
-        <div className="text-gray-900">Loading...</div>
+      <div className="h-screen w-screen bg-[#0f0a0a] flex items-center justify-center">
+        <div className="text-white">Loading...</div>
       </div>
     );
   }
 
-  // Don't render landing page for signed-in users (they'll be redirected)
-  if (isSignedIn) {
+  // Authenticated users will be redirected
+  if (user) {
     return null;
   }
 
-  // Prepare gallery items from /public/images/home
-  const galleryItems = [
-    { image: "/images/home/IMG_9037.jpg", text: "Example 1" },
-    { image: "/images/home/IMG_9038.jpg", text: "Example 2" },
-    { image: "/images/home/IMG_9039.jpg", text: "Example 3" },
-    { image: "/images/home/IMG_9049.jpg", text: "Example 4" },
-    { image: "/images/home/IMG_9050.jpg", text: "Example 5" },
-  ];
+  // Show results if we have them
+  if (results || generating || error) {
+    return (
+      <ResultsPage
+        images={results}
+        onBack={handleBackToCapture}
+        generating={generating}
+        error={error}
+        generatingType={selectedPresetType}
+      />
+    );
+  }
 
   return (
-    <div className="relative h-screen w-screen bg-white overflow-hidden">
-      {/* Fixed Background Gallery */}
-      <div className="fixed inset-0 z-0">
-        <CircularGallery
-          items={galleryItems}
-          heading="Transform Your Photos with AI"
-          description="Create stunning AI-generated profile images with Canadian-themed presets."
+    <div className="h-screen w-screen bg-[#0f0a0a] overflow-hidden">
+      {/* Splash Screen */}
+      <SplashScreen onComplete={handleSplashComplete} />
+
+      {/* Instructions Overlay */}
+      <InstructionOverlay
+        isOpen={showInstructions}
+        onClose={() => setShowInstructions(false)}
+        freeTriesRemaining={freeTriesRemaining}
+      />
+
+      {/* Login Prompt Modal */}
+      <LoginPromptModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        onSuccess={() => router.push("/home")}
+      />
+
+      {/* Main Camera View */}
+      <div className="h-full w-full flex flex-col items-center justify-between p-4 gap-4">
+        {/* Info Button - Top Right */}
+        <button
+          onClick={() => setShowInstructions(true)}
+          className="absolute top-6 right-6 z-30 w-10 h-10 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center hover:bg-white/20 transition-colors"
+        >
+          <Info className="w-5 h-5 text-white" />
+        </button>
+
+        {/* Camera View */}
+        <CameraView
+          videoRef={videoRef}
+          canvasRef={canvasRef}
+          photoPreview={photoPreview}
+          isSignedIn={false}
+          freeCredits={freeTriesRemaining}
+          selectedPreset={selectedPreset}
+          onPresetChange={setSelectedPreset}
+          generating={generating}
         />
-      </div>
 
-      {/* Header */}
-      <header className="fixed top-0 left-0 right-0 z-50 px-4 py-4 pointer-events-none">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex items-center justify-between px-6 py-3 rounded-full border border-gray-200 bg-white/80 backdrop-blur-md shadow-sm pointer-events-auto">
-            {/* Logo */}
-            <div className="flex items-center gap-3">
-              <Image
-                src="/logo.webp"
-                alt="PhotoApp Logo"
-                width={40}
-                height={40}
-                className="rounded-lg"
-              />
+        {/* Free Tries Banner */}
+        {freeTriesRemaining > 0 && (
+          <div className="absolute bottom-32 left-0 right-0 flex justify-center px-4 z-20">
+            <div className="bg-emerald-500/90 backdrop-blur-sm text-white px-4 py-2 rounded-full text-xs font-medium">
+              {freeTriesRemaining} free{" "}
+              {freeTriesRemaining === 1 ? "try" : "tries"} remaining
             </div>
-
-            {/* Sign In Button */}
-            <SignInButton mode="modal" forceRedirectUrl="/generate">
-              <Button
-                className="rounded-full bg-black text-white hover:bg-gray-800"
-              >
-                Get Started
-              </Button>
-            </SignInButton>
           </div>
-        </div>
-      </header>
+        )}
 
-      {/* Bottom CTA Section */}
-      <div className="fixed bottom-0 left-0 right-0 z-50 px-4 py-6 pointer-events-none">
-        <div className="max-w-2xl mx-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 1 }}
-            className="bg-white/90 backdrop-blur-md rounded-3xl shadow-2xl border border-gray-200 p-8 text-center pointer-events-auto"
-          >
-            <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-3">
-              Ready to Create?
-            </h2>
-            <p className="text-gray-600 mb-6 text-sm md:text-base">
-              Start generating beautiful AI photos in seconds
-            </p>
-            <SignInButton mode="modal" forceRedirectUrl="/generate">
-              <Button
-                size="lg"
-                className="text-base md:text-lg px-8 py-6 bg-black text-white hover:bg-gray-800 rounded-full shadow-lg hover:shadow-xl transition-all duration-300"
-              >
-                Start Now - It's Free
-              </Button>
-            </SignInButton>
-          </motion.div>
-        </div>
+        {/* Camera Controls */}
+        <CameraControls
+          isSignedIn={false}
+          credits={null}
+          videoCredits={null}
+          photoPreview={photoPreview}
+          generating={generating}
+          stream={stream}
+          selectedPresetType={selectedPresetType}
+          hasCredits={hasFreeTriesLeft}
+          selectedStyle={selectedStyle}
+          onCapture={handleCaptureClick}
+          onGenerate={handleGenerateClick}
+          onPurchase={() => setShowLoginModal(true)}
+          onStyleChange={setSelectedStyle}
+        />
       </div>
     </div>
   );

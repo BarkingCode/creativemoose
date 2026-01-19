@@ -10,9 +10,10 @@
 
 import { Logo } from "@/components/logo";
 import { PresetSelector } from "@/components/preset-selector";
-import { SignInButton, UserButton } from "@clerk/nextjs";
+import { UserButton, SignInButton } from "@/components/auth/user-button";
 import { LogIn } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 
 interface CameraViewProps {
   videoRef: React.RefObject<HTMLVideoElement | null>;
@@ -63,7 +64,9 @@ export function CameraView({
           <div className="text-center">
             <div className="w-16 h-16 border-4 border-white/20 border-t-white rounded-full animate-spin mx-auto mb-4"></div>
             <p className="text-white text-xl font-medium">Generating...</p>
-            <p className="text-white/70 text-sm mt-2">Creating your AI images</p>
+            <p className="text-white/70 text-sm mt-2">
+              Creating your AI images
+            </p>
           </div>
         </div>
       )}
@@ -76,28 +79,14 @@ export function CameraView({
 
         <div className="flex items-center gap-3">
           {isSignedIn ? (
-            <UserButton
-              appearance={{
-                elements: {
-                  avatarBox: "w-10 h-10",
-                  userButtonPopoverCard: "shadow-xl",
-                },
-              }}
-            />
+            <UserButton />
           ) : (
-            <SignInButton
-              mode="modal"
-              forceRedirectUrl="/generate"
-              signUpForceRedirectUrl="/generate"
-            >
-              <button
-                data-clerk-sign-in
-                className="bg-white text-black px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 hover:bg-gray-100 transition-colors"
-              >
+            <Link href="/sign-in">
+              <button className="bg-white text-black px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 hover:bg-gray-100 transition-colors">
                 <LogIn className="w-4 h-4" />
                 Sign In
               </button>
-            </SignInButton>
+            </Link>
           )}
         </div>
       </div>
@@ -106,8 +95,8 @@ export function CameraView({
       {isSignedIn && freeCredits > 0 && (
         <div className="absolute bottom-20 left-0 right-0 flex justify-center px-6">
           <div className="bg-green-500/90 backdrop-blur-sm text-white px-4 py-2 rounded-full text-xs font-medium">
-            🎉 {freeCredits} free {freeCredits === 1 ? "image credit" : "image credits"}{" "}
-            remaining
+            {freeCredits} free{" "}
+            {freeCredits === 1 ? "image credit" : "image credits"} remaining
           </div>
         </div>
       )}
@@ -119,7 +108,6 @@ export function CameraView({
             const res = await fetch("/api/reset-credits", { method: "POST" });
             const data = await res.json();
             console.log(data);
-            alert("Credits/Rate limit reset! Refresh the page.");
             window.location.reload();
           }}
           className="absolute bottom-20 left-4 w-fit mx-auto z-10 bg-yellow-500 text-black px-3 py-1 rounded text-xs"

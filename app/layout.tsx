@@ -1,11 +1,12 @@
 import type { Metadata, Viewport } from "next";
-import { ClerkProvider } from "@clerk/nextjs";
-import { Analytics } from "@vercel/analytics/next"
+import { Analytics } from "@vercel/analytics/next";
+import { AuthProvider } from "@/contexts/AuthContext";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "PhotoApp - AI Profile Generator",
-  description: "Generate creative AI profile images with Canadian city presets",
+  description:
+    "Generate creative AI profile images with Canadian city presets",
   manifest: "/manifest.json",
 };
 
@@ -23,21 +24,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider
-      appearance={{
-        elements: {
-          modalBackdrop: "backdrop-blur-sm",
-        },
-      }}
-      signInForceRedirectUrl="/generate"
-      signUpForceRedirectUrl="/generate"
-    >
-      <html lang="en" className="h-full">
-        <body className="antialiased h-full bg-[#0f0a0a] overflow-hidden">
-          {children}
-          <Analytics />
-        </body>
-      </html>
-    </ClerkProvider>
+    <html lang="en" className="h-full">
+      <body className="antialiased h-full bg-[#0f0a0a] overflow-hidden">
+        <AuthProvider>{children}</AuthProvider>
+        <Analytics />
+      </body>
+    </html>
   );
 }
