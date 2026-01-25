@@ -155,22 +155,10 @@ export default function HomeScreen() {
       }
       setError(null);
 
-      // Query images with profile info via join
+      // Query images first
       const { data: feedImages, error: fetchError } = await supabase
         .from("images")
-        .select(`
-          id,
-          user_id,
-          generation_batch_id,
-          image_url,
-          preset_id,
-          created_at,
-          profiles:user_id (
-            display_name,
-            full_name,
-            avatar_url
-          )
-        `)
+        .select("id, user_id, generation_batch_id, image_url, preset_id, created_at")
         .eq("is_public", true)
         .order("created_at", { ascending: false })
         .range(offset, offset + PAGE_SIZE - 1);
@@ -179,9 +167,36 @@ export default function HomeScreen() {
         throw new Error(fetchError.message);
       }
 
+      // Get unique user IDs to fetch profiles
+      const userIds = [...new Set((feedImages || []).map((img) => img.user_id))];
+
+      // Fetch profiles for these users
+      let profilesMap: Record<string, { first_name: string | null; last_name: string | null; avatar_url: string | null }> = {};
+      if (userIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("id, first_name, last_name, avatar_url")
+          .in("id", userIds);
+
+        if (profiles) {
+          profilesMap = profiles.reduce((acc, profile) => {
+            acc[profile.id] = {
+              first_name: profile.first_name,
+              last_name: profile.last_name,
+              avatar_url: profile.avatar_url,
+            };
+            return acc;
+          }, {} as typeof profilesMap);
+        }
+      }
+
       // Transform data with profile info
       const transformedImages = (feedImages || []).map((img: any) => {
-        const profile = img.profiles;
+        const profile = profilesMap[img.user_id];
+        // Build display name from first/last name
+        const userName = profile?.first_name || profile?.last_name
+          ? `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim()
+          : null;
         return {
           id: img.id,
           user_id: img.user_id,
@@ -190,7 +205,7 @@ export default function HomeScreen() {
           preset_id: img.preset_id,
           created_at: img.created_at,
           user_avatar_url: profile?.avatar_url || null,
-          user_name: profile?.display_name || profile?.full_name || null,
+          user_name: userName,
         };
       });
 

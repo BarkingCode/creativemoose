@@ -8,6 +8,15 @@
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "scheme": "kg-photo",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/7ace94f8-d33a-45be-9cd0-cdf8d897d6f0"
+    },
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -15,7 +24,7 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.kanadageyikleri.mobile.photo",
+      "bundleIdentifier": "com.barkingcode.creativemoose",
       "usesAppleSignIn": true,
       "infoPlist": {
         "NSCameraUsageDescription": "KG-Photo needs camera access to take photos for AI generation",
@@ -24,7 +33,7 @@
       }
     },
     "android": {
-      "package": "com.kanadageyikleri.mobile.photo",
+      "package": "com.barkingcode.creativemoose",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0f0a0a"
@@ -51,6 +60,7 @@
       "expo-secure-store",
       "expo-web-browser",
       "expo-apple-authentication",
+      "expo-updates",
       [
         "expo-camera",
         {
@@ -78,7 +88,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "b60a9ba1-563e-4148-8a14-aaca381f6a26"
+        "projectId": "7ace94f8-d33a-45be-9cd0-cdf8d897d6f0"
       }
     },
     "owner": "boraalap"
