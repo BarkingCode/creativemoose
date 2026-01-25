@@ -1,13 +1,13 @@
 {
   "expo": {
-    "name": "PhotoApp",
-    "slug": "photoapp",
+    "name": "KG-Photo",
+    "slug": "kg-photo",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
-    "scheme": "photoapp",
+    "scheme": "kg-photo",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -15,15 +15,16 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.photoapp.mobile",
+      "bundleIdentifier": "com.kanadageyikleri.mobile.photo",
+      "usesAppleSignIn": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "PhotoApp needs camera access to take photos for AI generation",
-        "NSPhotoLibraryUsageDescription": "PhotoApp needs photo library access to select images for AI generation",
+        "NSCameraUsageDescription": "KG-Photo needs camera access to take photos for AI generation",
+        "NSPhotoLibraryUsageDescription": "KG-Photo needs photo library access to select images for AI generation",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "com.photoapp.mobile",
+      "package": "com.kanadageyikleri.mobile.photo",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0f0a0a"
@@ -48,23 +49,25 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
+      "expo-web-browser",
+      "expo-apple-authentication",
       [
         "expo-camera",
         {
-          "cameraPermission": "PhotoApp needs camera access to take photos for AI generation"
+          "cameraPermission": "KG-Photo needs camera access to take photos for AI generation"
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "PhotoApp needs photo library access to select images for AI generation"
+          "photosPermission": "KG-Photo needs photo library access to select images for AI generation"
         }
       ],
       [
         "expo-media-library",
         {
-          "photosPermission": "PhotoApp needs access to save generated photos to your library",
-          "savePhotosPermission": "PhotoApp needs permission to save generated photos",
+          "photosPermission": "KG-Photo needs access to save generated photos to your library",
+          "savePhotosPermission": "KG-Photo needs permission to save generated photos",
           "isAccessMediaLocationEnabled": true
         }
       ]
@@ -75,7 +78,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "16c3ccb3-1179-49c3-bdd4-f1e0787152ec"
+        "projectId": "b60a9ba1-563e-4148-8a14-aaca381f6a26"
       }
     },
     "owner": "boraalap"

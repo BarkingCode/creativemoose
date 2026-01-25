@@ -18,7 +18,7 @@ import Purchases, {
   LOG_LEVEL
 } from 'react-native-purchases';
 import { useAuth } from './AuthContext';
-import { supabase } from '../lib/supabase';
+import { supabase, Credits } from '../lib/supabase';
 
 // Product ID to credits mapping
 const PRODUCT_CREDITS: Record<string, number> = {
@@ -33,9 +33,12 @@ interface RevenueCatContextType {
   isLoading: boolean;
   isPurchasing: boolean;
   error: string | null;
+  credits: Credits | null;
+  isLoadingCredits: boolean;
   purchasePackage: (pkg: PurchasesPackage) => Promise<boolean>;
   restorePurchases: () => Promise<void>;
   refreshOfferings: () => Promise<void>;
+  refreshCredits: () => Promise<void>;
 }
 
 const RevenueCatContext = createContext<RevenueCatContextType | undefined>(undefined);
@@ -52,6 +55,8 @@ export function RevenueCatProvider({ children }: RevenueCatProviderProps) {
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isConfigured, setIsConfigured] = useState(false);
+  const [credits, setCredits] = useState<Credits | null>(null);
+  const [isLoadingCredits, setIsLoadingCredits] = useState(false);
 
   // Initialize RevenueCat SDK
   useEffect(() => {
@@ -148,6 +153,50 @@ export function RevenueCatProvider({ children }: RevenueCatProviderProps) {
     setIsLoading(false);
   }, []);
 
+  // Fetch credits from Supabase
+  const refreshCredits = useCallback(async () => {
+    if (!user?.id) return;
+    setIsLoadingCredits(true);
+    try {
+      const { data, error } = await supabase
+        .from("credits")
+        .select("*")
+        .eq("user_id", user.id)
+        .single();
+
+      if (error) {
+        console.error('[refreshCredits] Error fetching credits:', error);
+        // If no row exists, user may need their credits row created
+        if (error.code === 'PGRST116') {
+          console.warn('[refreshCredits] No credits row found for user - may need to run migration or create row');
+        }
+        return;
+      }
+
+      if (data) {
+        console.log('[refreshCredits] Credits loaded:', {
+          free: data.free_credits,
+          paid: data.image_credits,
+          total: data.free_credits + data.image_credits,
+        });
+        setCredits(data);
+      }
+    } catch (err) {
+      console.error('[refreshCredits] Failed to fetch credits:', err);
+    } finally {
+      setIsLoadingCredits(false);
+    }
+  }, [user?.id]);
+
+  // Fetch credits when user changes
+  useEffect(() => {
+    if (user?.id) {
+      refreshCredits();
+    } else {
+      setCredits(null);
+    }
+  }, [user?.id, refreshCredits]);
+
   // Sync purchased credits to Supabase
   const syncCreditsToSupabase = async (productId: string): Promise<boolean> => {
     if (!user?.id || !session?.access_token) {
@@ -163,9 +212,9 @@ export function RevenueCatProvider({ children }: RevenueCatProviderProps) {
 
     try {
       // Call Supabase function to add credits
-      const { error } = await supabase.rpc('add_credits', {
+      const { data, error } = await supabase.rpc('add_credits', {
         p_user_id: user.id,
-        p_amount: creditsToAdd,
+        p_credits: creditsToAdd,
       });
 
       if (error) {
@@ -173,6 +222,13 @@ export function RevenueCatProvider({ children }: RevenueCatProviderProps) {
         return false;
       }
 
+      // Check if the RPC returned success (data should be true)
+      if (data === false) {
+        console.error('add_credits RPC returned false - user may not have credits row');
+        return false;
+      }
+
+      console.log('Credits synced successfully:', { userId: user.id, creditsAdded: creditsToAdd });
       return true;
     } catch (err) {
       console.error('Error syncing credits to Supabase:', err);
@@ -199,7 +255,10 @@ export function RevenueCatProvider({ children }: RevenueCatProviderProps) {
       // Sync credits to Supabase
       const synced = await syncCreditsToSupabase(productId);
 
-      if (!synced) {
+      if (synced) {
+        // Refresh credits to update UI
+        await refreshCredits();
+      } else {
         // Purchase succeeded but credit sync failed
         // The webhook should handle this as a backup
         Alert.alert(
@@ -224,7 +283,7 @@ export function RevenueCatProvider({ children }: RevenueCatProviderProps) {
     } finally {
       setIsPurchasing(false);
     }
-  }, [user]);
+  }, [user, refreshCredits]);
 
   const restorePurchases = useCallback(async () => {
     setIsLoading(true);
@@ -250,9 +309,12 @@ export function RevenueCatProvider({ children }: RevenueCatProviderProps) {
     isLoading,
     isPurchasing,
     error,
+    credits,
+    isLoadingCredits,
     purchasePackage,
     restorePurchases,
     refreshOfferings,
+    refreshCredits,
   };
 
   return (

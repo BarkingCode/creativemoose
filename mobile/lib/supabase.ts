@@ -1,17 +1,18 @@
 /**
  * Supabase Client for React Native
  *
- * This client uses expo-secure-store for secure token storage on mobile devices.
- * It provides the same interface as the web client but with mobile-optimized storage.
+ * This client uses AsyncStorage for session persistence on mobile devices.
+ * AsyncStorage has no size limit (unlike SecureStore's 2048 byte limit on iOS),
+ * which is necessary for storing Supabase sessions with JWTs and user metadata.
  */
 
 import "react-native-url-polyfill/auto";
 import { createClient } from "@supabase/supabase-js";
-import * as SecureStore from "expo-secure-store";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 
-// Custom storage adapter for React Native using SecureStore
-const ExpoSecureStoreAdapter = {
+// Custom storage adapter for React Native using AsyncStorage
+const AsyncStorageAdapter = {
   getItem: async (key: string): Promise<string | null> => {
     if (Platform.OS === "web") {
       // Use localStorage for web
@@ -20,7 +21,7 @@ const ExpoSecureStoreAdapter = {
       }
       return null;
     }
-    return await SecureStore.getItemAsync(key);
+    return AsyncStorage.getItem(key);
   },
   setItem: async (key: string, value: string): Promise<void> => {
     if (Platform.OS === "web") {
@@ -29,7 +30,7 @@ const ExpoSecureStoreAdapter = {
       }
       return;
     }
-    await SecureStore.setItemAsync(key, value);
+    await AsyncStorage.setItem(key, value);
   },
   removeItem: async (key: string): Promise<void> => {
     if (Platform.OS === "web") {
@@ -38,7 +39,7 @@ const ExpoSecureStoreAdapter = {
       }
       return;
     }
-    await SecureStore.deleteItemAsync(key);
+    await AsyncStorage.removeItem(key);
   },
 };
 
@@ -54,7 +55,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient(supabaseUrl || "", supabaseAnonKey || "", {
   auth: {
-    storage: ExpoSecureStoreAdapter,
+    storage: AsyncStorageAdapter,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false, // Important for React Native

@@ -7,22 +7,28 @@
  * Flow:
  * 1. First visit → Splash screen → Instructions overlay → Camera
  * 2. Return visit → Camera directly (splash/instructions skipped)
- * 3. After 2 free tries → Login prompt modal
+ * 3. Capture/pick image → Generate images → Navigate to /preview-results
+ * 4. Credit consumed ONLY after successful generation
+ * 5. Return to camera with 0 tries → Redirect to sign-up
+ * 6. Initial open with 0 tries → Camera shows, but capture shows "Sign Up" prompt
  */
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
   Pressable,
-  ScrollView,
+  TouchableOpacity,
   Alert,
   ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
+import { Image } from "expo-image";
 import { useAuth } from "../contexts/AuthContext";
 import { useAnonymousCredits } from "../hooks/useAnonymousCredits";
 import { SplashScreen, hasSplashBeenSeen } from "../components/SplashScreen";
@@ -30,63 +36,95 @@ import {
   InstructionOverlay,
   hasInstructionsBeenSeen,
 } from "../components/InstructionOverlay";
-import { LoginPromptModal } from "../components/LoginPromptModal";
 import { Info, Image as ImageIcon, RefreshCw } from "lucide-react-native";
+import { StyleSwiper } from "../components/StyleSwiper";
+import { FilterSwiper } from "../components/FilterSwiper";
+import { PRESET_PICKER_OPTIONS } from "../shared/presets";
+import { STYLE_PICKER_OPTIONS } from "../shared/photo-styles";
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+// Max dimension for API uploads (keeps base64 under ~500KB)
+const MAX_IMAGE_DIMENSION = 1024;
 
-const PRESETS = [
-  { id: "mapleAutumn", name: "Maple Autumn", emoji: "🍁" },
-  { id: "winterWonderland", name: "Winter", emoji: "❄️" },
-  { id: "northernLights", name: "Aurora", emoji: "🌌" },
-  { id: "cottageLife", name: "Cottage", emoji: "🏕️" },
-  { id: "urbanCanada", name: "Urban", emoji: "🏙️" },
-  { id: "wildernessExplorer", name: "Wilderness", emoji: "🏔️" },
-  { id: "editorialCanada", name: "Editorial", emoji: "📸" },
-  { id: "canadianWildlifeParty", name: "Wildlife", emoji: "🦫" },
-  { id: "ehEdition", name: "Eh Edition", emoji: "🍁" },
-  { id: "withus", name: "With Us", emoji: "👥" },
-];
-
-const STYLES = [
-  { id: "photorealistic", name: "Photo", emoji: "📷" },
-  { id: "cartoon", name: "Cartoon", emoji: "🎨" },
-  { id: "vintage50s", name: "50s Vibe", emoji: "📺" },
-  { id: "cinematic", name: "Cinematic", emoji: "🎬" },
-  { id: "oil-painting", name: "Oil Paint", emoji: "🖼️" },
-  { id: "watercolor", name: "Watercolor", emoji: "💧" },
-];
+/**
+ * Resize image to max dimension while maintaining aspect ratio
+ */
+async function resizeImageForUpload(uri: string): Promise<{ uri: string; base64: string }> {
+  const result = await ImageManipulator.manipulateAsync(
+    uri,
+    [{ resize: { width: MAX_IMAGE_DIMENSION } }],
+    { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+  );
+  return { uri: result.uri, base64: result.base64 || "" };
+}
 
 export default function LandingScreen() {
   const router = useRouter();
   const { user, isLoading: authLoading } = useAuth();
   const cameraRef = useRef<CameraView>(null);
+  const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
 
   // Anonymous credits
   const {
     freeTriesRemaining,
     hasFreeTriesLeft,
-    useFreeTry,
     isReady: creditsReady,
+    resetCredits, // For testing - remove in production
   } = useAnonymousCredits();
+
+  // Debug: Log credit state changes
+  useEffect(() => {
+    if (creditsReady) {
+      console.log("[LandingScreen] Credits ready:", {
+        freeTriesRemaining,
+        hasFreeTriesLeft,
+      });
+    }
+  }, [creditsReady, freeTriesRemaining, hasFreeTriesLeft]);
 
   // UI State
   const [showSplash, setShowSplash] = useState(true);
   const [showInstructions, setShowInstructions] = useState(false);
-  const [showLoginModal, setShowLoginModal] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
 
   // Camera state
   const [permission, requestPermission] = useCameraPermissions();
-  const [selectedPreset, setSelectedPreset] = useState(PRESETS[0].id);
-  const [selectedStyle, setSelectedStyle] = useState(STYLES[0].id);
-  const [showStylePicker, setShowStylePicker] = useState(false);
+  const [selectedPreset, setSelectedPreset] = useState<string>(PRESET_PICKER_OPTIONS[0].id);
+  const [selectedStyle, setSelectedStyle] = useState<string>(STYLE_PICKER_OPTIONS[0].id);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [isPickingImage, setIsPickingImage] = useState(false);
   const [facing, setFacing] = useState<CameraType>("front");
 
-  // Generation state
-  const [generating, setGenerating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Frozen frame state (shows captured photo while navigating)
+  const [frozenPhotoUri, setFrozenPhotoUri] = useState<string | null>(null);
+
+  // Clear frozen frame when leaving screen
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        setFrozenPhotoUri(null);
+      };
+    }, [])
+  );
+
+  // Track if user has left this screen (to distinguish initial mount from return)
+  const hasLeftScreen = useRef(false);
+
+  // Redirect to sign-up when RETURNING to camera with no tries left
+  useFocusEffect(
+    useCallback(() => {
+      // Only redirect when returning to screen (not on initial mount)
+      if (hasLeftScreen.current && creditsReady && !hasFreeTriesLeft) {
+        console.log("[LandingScreen] Returning with no tries left, redirecting to sign-up");
+        router.replace("/(auth)/sign-up");
+      }
+
+      // Cleanup: mark that user has left the screen
+      return () => {
+        hasLeftScreen.current = true;
+      };
+    }, [creditsReady, hasFreeTriesLeft, router])
+  );
 
   // Mark mounted
   useEffect(() => {
@@ -106,12 +144,18 @@ export default function LandingScreen() {
     }
   };
 
-  // Redirect authenticated users to tabs
+  // Track if initial redirect has happened to prevent multiple redirects
+  // (e.g., when results.tsx refreshes the session, user state changes)
+  const hasRedirected = useRef(false);
+
+  // Redirect authenticated users to tabs (only once)
   useEffect(() => {
-    if (!authLoading && user) {
+    if (!authLoading && user && !hasRedirected.current) {
+      hasRedirected.current = true;
       router.replace("/(tabs)/home");
     }
   }, [authLoading, user, router]);
+
 
   // Handle splash complete
   const handleSplashComplete = async () => {
@@ -126,8 +170,16 @@ export default function LandingScreen() {
   const handleCapture = async () => {
     if (!cameraRef.current) return;
 
+    // Check if user has tries left (handles edge case of 0 tries on initial app open)
     if (!hasFreeTriesLeft) {
-      setShowLoginModal(true);
+      Alert.alert(
+        "No Free Tries Left",
+        "Sign up to get more generations!",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Sign Up", onPress: () => router.push("/(auth)/sign-up") },
+        ]
+      );
       return;
     }
 
@@ -135,15 +187,22 @@ export default function LandingScreen() {
 
     try {
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.8,
-        base64: true,
+        quality: 0.9,
       });
 
       if (photo) {
-        await handleGenerate(photo.base64!, photo.uri);
+        // Freeze frame immediately after capture
+        setFrozenPhotoUri(photo.uri);
+
+        // Resize image for API upload (keeps payload small)
+        const resized = await resizeImageForUpload(photo.uri);
+        console.log("[LandingScreen] Image resized, base64 size:", Math.round(resized.base64.length / 1024), "KB");
+
+        await handleGenerate(resized.base64, resized.uri);
       }
     } catch (err) {
       console.error("Capture error:", err);
+      setFrozenPhotoUri(null); // Clear on error
       Alert.alert("Error", "Failed to capture photo. Please try again.");
     } finally {
       setIsCapturing(false);
@@ -152,79 +211,52 @@ export default function LandingScreen() {
 
   // Handle image from gallery
   const handlePickImage = async () => {
+    // Check if user has tries left (handles edge case of 0 tries on initial app open)
     if (!hasFreeTriesLeft) {
-      setShowLoginModal(true);
+      Alert.alert(
+        "No Free Tries Left",
+        "Sign up to get more generations!",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Sign Up", onPress: () => router.push("/(auth)/sign-up") },
+        ]
+      );
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
-      base64: true,
-    });
-
-    if (!result.canceled && result.assets[0]) {
-      const asset = result.assets[0];
-      await handleGenerate(asset.base64!, asset.uri);
-    }
-  };
-
-  // Generate preview images
-  const handleGenerate = async (base64: string, uri: string) => {
-    setGenerating(true);
-    setError(null);
-
+    setIsPickingImage(true);
     try {
-      // Create form data
-      const formData = new FormData();
-      formData.append("photo", {
-        uri: uri,
-        type: "image/jpeg",
-        name: "photo.jpg",
-      } as any);
-      formData.append("presetId", selectedPreset);
-      formData.append("styleId", selectedStyle);
-
-      const response = await fetch(`${API_URL}/api/preview`, {
-        method: "POST",
-        body: formData,
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.9,
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        if (data.code === "RATE_LIMITED") {
-          setShowLoginModal(true);
-          setError(null);
-        } else {
-          setError(data.error || "Generation failed");
-        }
-        return;
+      if (!result.canceled && result.assets[0]) {
+        const asset = result.assets[0];
+        // Resize image for API upload (keeps payload small)
+        const resized = await resizeImageForUpload(asset.uri);
+        console.log("[LandingScreen] Image resized, base64 size:", Math.round(resized.base64.length / 1024), "KB");
+        await handleGenerate(resized.base64, resized.uri);
       }
-
-      // Consume a free try
-      await useFreeTry();
-
-      // Navigate to results screen with data
-      router.push({
-        pathname: "/preview-results",
-        params: {
-          images: JSON.stringify(data.images),
-          isPreview: "true",
-        },
-      });
-    } catch (err) {
-      console.error("Generation error:", err);
-      setError("Something went wrong. Please try again.");
     } finally {
-      setGenerating(false);
+      setIsPickingImage(false);
     }
   };
 
-  const handleLoginSuccess = () => {
-    setShowLoginModal(false);
-    router.replace("/(tabs)/home");
+  // Navigate to unified results screen with photo params
+  // Generation happens in results.tsx (handles both anonymous and authenticated)
+  const handleGenerate = async (base64: string, uri: string) => {
+    router.push({
+      pathname: "/results",
+      params: {
+        photoUri: uri,
+        photoBase64: base64,
+        presetId: selectedPreset,
+        styleId: selectedStyle,
+      },
+    });
   };
+
 
   // Loading state
   if (authLoading || !isMounted || !creditsReady) {
@@ -272,7 +304,8 @@ export default function LandingScreen() {
     );
   }
 
-  const selectedStyleData = STYLES.find((s) => s.id === selectedStyle);
+  // Only render camera when screen is focused and not showing overlays
+  const shouldShowCamera = isFocused && !showSplash && !showInstructions;
 
   return (
     <View className="flex-1 bg-background">
@@ -286,40 +319,52 @@ export default function LandingScreen() {
         freeTriesRemaining={freeTriesRemaining}
       />
 
-      {/* Login Prompt Modal */}
-      <LoginPromptModal
-        isOpen={showLoginModal}
-        onClose={() => setShowLoginModal(false)}
-        onSuccess={handleLoginSuccess}
-      />
-
-      {/* Camera View */}
-      <CameraView
-        ref={cameraRef}
-        style={{ flex: 1 }}
-        facing={facing}
-        mode="picture"
-      >
-        <SafeAreaView className="flex-1">
+      {/* Camera View - only rendered when focused and not showing overlays */}
+      {shouldShowCamera ? (
+        <CameraView
+          ref={cameraRef}
+          style={{ flex: 1 }}
+          facing={facing}
+          mode="picture"
+        >
+        <View style={{ flex: 1, paddingTop: insets.top, paddingBottom: insets.bottom }}>
           {/* Top Bar */}
-          <View className="flex-row items-center justify-between px-4 pt-2">
-            <View className="flex-row items-center">
-              <Text className="text-xl bg-[#1a1517]/80 p-2 rounded-xl overflow-hidden">
-                📸
-              </Text>
-              <Text className="text-white font-bold text-lg ml-2">
-                PhotoApp
-              </Text>
-            </View>
+          <View className="flex-row items-center justify-between px-4 pt-2" style={{ zIndex: 20 }}>
+            {/* Spacer for symmetry */}
+            <View className="w-10 h-10" />
 
-            <Pressable
+            {/* Centered Logo */}
+            <Image
+              source={require("../assets/logo.png")}
+              style={{ width: 120, height: 40 }}
+              contentFit="contain"
+            />
+
+            {/* Info button */}
+            <TouchableOpacity
               onPress={() => setShowInstructions(true)}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              className="bg-[#1a1517]/80 w-10 h-10 rounded-full items-center justify-center"
+              activeOpacity={0.7}
+              style={{
+                backgroundColor: 'rgba(23, 23, 23, 0.8)',
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
             >
-              <Info color="white" size={20} />
-            </Pressable>
+              <View pointerEvents="none">
+                <Info color="white" size={20} />
+              </View>
+            </TouchableOpacity>
           </View>
+
+          {/* Style Swiper - left side */}
+          <StyleSwiper
+            styles={STYLE_PICKER_OPTIONS}
+            selectedStyleId={selectedStyle}
+            onStyleChange={setSelectedStyle}
+          />
 
           <View className="flex-1" />
 
@@ -335,111 +380,52 @@ export default function LandingScreen() {
 
           {/* Bottom Controls */}
           <View className="pb-6">
-            {/* Preset Selector */}
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              className="mb-4"
-              contentContainerStyle={{ paddingHorizontal: 16 }}
-            >
-              {PRESETS.map((preset) => (
-                <Pressable
-                  key={preset.id}
-                  onPress={() => setSelectedPreset(preset.id)}
-                  className={`flex-row items-center px-4 py-2.5 rounded-[20px] mr-2 ${
-                    selectedPreset === preset.id
-                      ? "bg-white"
-                      : "bg-[#1a1517]/80"
-                  }`}
-                >
-                  <Text className="text-base mr-1.5">{preset.emoji}</Text>
-                  <Text
-                    className={`font-medium text-sm ${
-                      selectedPreset === preset.id
-                        ? "text-background"
-                        : "text-white"
-                    }`}
-                  >
-                    {preset.name}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-
-            {/* Action Buttons */}
-            <View className="flex-row items-center justify-center px-4">
-              <Pressable
-                onPress={handlePickImage}
-                className="bg-[#1a1517]/80 w-14 h-14 rounded-full items-center justify-center"
-              >
-                <ImageIcon color="white" size={24} />
-              </Pressable>
-
-              <Pressable
-                onPress={handleCapture}
-                disabled={isCapturing || generating}
-                className="w-20 h-20 rounded-full border-4 border-white items-center justify-center mx-6"
-              >
-                {generating ? (
-                  <ActivityIndicator color="#0f0a0a" size="large" />
-                ) : (
-                  <View
-                    className={`w-16 h-16 rounded-full bg-white ${
-                      isCapturing ? "opacity-50" : ""
-                    }`}
-                  />
-                )}
-              </Pressable>
-
-              <Pressable
-                onPress={() => setShowStylePicker(!showStylePicker)}
-                className="bg-[#1a1517]/80 w-14 h-14 rounded-full items-center justify-center"
-              >
-                <Text className="text-2xl">{selectedStyleData?.emoji}</Text>
-              </Pressable>
+            {/* Preset Selector - Centered swipeable */}
+            <View className="mb-4">
+              <FilterSwiper
+                filters={PRESET_PICKER_OPTIONS}
+                selectedFilterId={selectedPreset}
+                onFilterChange={setSelectedPreset}
+              />
             </View>
 
-            {/* Style Picker */}
-            {showStylePicker && (
-              <View className="mt-4 mx-4 bg-[#1a1517] rounded-2xl p-4">
-                <Text className="text-white font-semibold text-base mb-3">
-                  Select Style
-                </Text>
-                <View className="flex-row flex-wrap">
-                  {STYLES.map((style) => (
-                    <Pressable
-                      key={style.id}
-                      onPress={() => {
-                        setSelectedStyle(style.id);
-                        setShowStylePicker(false);
-                      }}
-                      className={`flex-row items-center px-3.5 py-2.5 rounded-[20px] mr-2 mb-2 ${
-                        selectedStyle === style.id ? "bg-white" : "bg-white/10"
-                      }`}
-                    >
-                      <Text className="text-sm mr-1.5">{style.emoji}</Text>
-                      <Text
-                        className={`font-medium text-[13px] ${
-                          selectedStyle === style.id
-                            ? "text-background"
-                            : "text-white"
-                        }`}
-                      >
-                        {style.name}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </View>
-            )}
+            {/* Action Buttons */}
+            <View className="relative">
+              <View className="flex-row items-center justify-center px-4">
+                <Pressable
+                  onPress={handlePickImage}
+                  disabled={isPickingImage}
+                  className="bg-neutral-900/80 w-14 h-14 rounded-full items-center justify-center"
+                >
+                  {isPickingImage ? (
+                    <ActivityIndicator color="white" size="small" />
+                  ) : (
+                    <ImageIcon color="white" size={24} />
+                  )}
+                </Pressable>
 
-            {/* Flip Camera */}
-            <Pressable
-              onPress={() => setFacing(facing === "front" ? "back" : "front")}
-              className="absolute right-4 bottom-[100px] bg-[#1a1517]/80 w-10 h-10 rounded-full items-center justify-center"
-            >
-              <RefreshCw color="white" size={20} />
-            </Pressable>
+                <Pressable
+                  onPress={handleCapture}
+                  disabled={isCapturing}
+                  className="w-20 h-20 rounded-full border-4 border-white items-center justify-center mx-6"
+                >
+                  <View
+                    className={`w-16 h-16 rounded-full bg-white ${isCapturing ? "opacity-50" : ""}`}
+                  />
+                </Pressable>
+
+                {/* Placeholder for symmetry */}
+                <View className="w-14 h-14" />
+              </View>
+
+              {/* Flip Camera - aligned with shutter button */}
+              <Pressable
+                onPress={() => setFacing(facing === "front" ? "back" : "front")}
+                className="absolute right-4 top-1/2 -translate-y-1/2 bg-neutral-900/80 w-10 h-10 rounded-full items-center justify-center"
+              >
+                <RefreshCw color="white" size={20} />
+              </Pressable>
+            </View>
 
             {/* Sign In Link */}
             <Pressable
@@ -451,15 +437,29 @@ export default function LandingScreen() {
               </Text>
             </Pressable>
           </View>
-        </SafeAreaView>
-      </CameraView>
-
-      {/* Error display */}
-      {error && (
-        <View className="absolute bottom-[120px] left-4 right-4 bg-red-500/90 p-3 rounded-xl items-center">
-          <Text className="text-white text-sm font-medium">{error}</Text>
         </View>
+      </CameraView>
+      ) : (
+        /* Placeholder when camera is not active */
+        <View style={{ flex: 1 }} />
       )}
+
+      {/* Frozen frame overlay - displays captured photo instantly */}
+      {frozenPhotoUri && (
+        <Image
+          source={{ uri: frozenPhotoUri }}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 45,
+          }}
+          contentFit="cover"
+        />
+      )}
+
     </View>
   );
 }

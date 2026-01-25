@@ -17,7 +17,6 @@ import Animated, {
   useAnimatedStyle,
   withTiming,
   withDelay,
-  withSpring,
 } from "react-native-reanimated";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Camera, Palette, Sparkles } from "lucide-react-native";
@@ -83,7 +82,7 @@ function StepItem({ step, index }: { step: StepData; index: number }) {
 
   useEffect(() => {
     opacity.value = withDelay(index * 150, withTiming(1, { duration: 400 }));
-    translateY.value = withDelay(index * 150, withSpring(0, { damping: 15 }));
+    translateY.value = withDelay(index * 150, withTiming(0, { duration: 400 }));
   }, []);
 
   const animatedStyle = useAnimatedStyle(() => ({
@@ -114,7 +113,7 @@ export function InstructionOverlay({
   freeTriesRemaining,
 }: InstructionOverlayProps) {
   const backdropOpacity = useSharedValue(0);
-  const contentScale = useSharedValue(0.9);
+  const contentTranslateY = useSharedValue(30);
   const contentOpacity = useSharedValue(0);
 
   useEffect(() => {
@@ -122,13 +121,13 @@ export function InstructionOverlay({
       // Reset values first, then animate
       backdropOpacity.value = 0;
       contentOpacity.value = 0;
-      contentScale.value = 0.9;
+      contentTranslateY.value = 30;
 
       // Small delay to ensure values are reset before animating
       setTimeout(() => {
         backdropOpacity.value = withTiming(1, { duration: 300 });
-        contentOpacity.value = withTiming(1, { duration: 300 });
-        contentScale.value = withSpring(1, { damping: 15 });
+        contentOpacity.value = withTiming(1, { duration: 350 });
+        contentTranslateY.value = withTiming(0, { duration: 350 });
       }, 10);
     }
   }, [isOpen]);
@@ -136,10 +135,10 @@ export function InstructionOverlay({
   const handleClose = async () => {
     await markInstructionsAsSeen();
 
-    // Animate out
+    // Animate out - fade and move down
     backdropOpacity.value = withTiming(0, { duration: 200 });
     contentOpacity.value = withTiming(0, { duration: 200 });
-    contentScale.value = withTiming(0.9, { duration: 200 });
+    contentTranslateY.value = withTiming(20, { duration: 200 });
 
     setTimeout(onClose, 200);
   };
@@ -150,7 +149,7 @@ export function InstructionOverlay({
 
   const contentStyle = useAnimatedStyle(() => ({
     opacity: contentOpacity.value,
-    transform: [{ scale: contentScale.value }],
+    transform: [{ translateY: contentTranslateY.value }],
   }));
 
   return (
@@ -162,7 +161,7 @@ export function InstructionOverlay({
         />
 
         <Animated.View
-          className="bg-[#1a1517] rounded-3xl p-6 w-full max-w-[400px] border border-white/10"
+          className="bg-neutral-900 rounded-3xl p-6 w-full max-w-[400px] border border-white/10"
           style={contentStyle}
         >
           <Text className="text-2xl font-bold text-white text-center mb-6">

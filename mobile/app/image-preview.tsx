@@ -25,24 +25,21 @@ import {
 import { Image } from "expo-image";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useAuth } from "../contexts/AuthContext";
-import { File, Paths } from "expo-file-system";
-import * as MediaLibrary from "expo-media-library";
+import { supabase } from "../lib/supabase";
 import {
   ArrowLeft,
-  Download,
   Share2,
   Trash2,
   Globe,
-  Lock,
+  Download,
 } from "lucide-react-native";
+import { File, Paths } from "expo-file-system";
+import * as MediaLibrary from "expo-media-library";
 
 const { width, height } = Dimensions.get("window");
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 
 export default function ImagePreviewScreen() {
   const router = useRouter();
-  const { session } = useAuth();
   const params = useLocalSearchParams<{
     imageId: string;
     imageUrl: string;
@@ -51,80 +48,79 @@ export default function ImagePreviewScreen() {
   }>();
 
   const [isPublic, setIsPublic] = useState(params.isPublic === "true");
-  const [loading, setLoading] = useState(false);
-  const [toggling, setToggling] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const isOwner = params.isOwner === "true";
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission Required",
+          "Please grant photo library access to save images."
+        );
+        return;
+      }
+
+      // Download the image
+      const file = await File.downloadFileAsync(
+        params.imageUrl,
+        new File(Paths.cache, `photoapp_${Date.now()}.png`),
+        { idempotent: true }
+      );
+
+      await MediaLibrary.saveToLibraryAsync(file.uri);
+      Alert.alert("Saved!", "Image saved to your photo library.");
+    } catch (err) {
+      console.error("Save error:", err);
+      Alert.alert("Error", "Failed to save image. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleBack = () => {
     router.back();
   };
 
-  const handleToggleShare = async () => {
-    if (!session?.access_token) return;
+  const handleShareToFeed = async () => {
+    if (isPublic) return;
 
-    setToggling(true);
-    try {
-      const response = await fetch(
-        `${API_URL}/api/images/${params.imageId}`,
+    Alert.alert(
+      "Share to Feed",
+      "This will make your image visible to everyone on the public feed. Continue?",
+      [
+        { text: "Cancel", style: "cancel" },
         {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
+          text: "Share",
+          onPress: async () => {
+            setSharing(true);
+            try {
+              const { error } = await supabase
+                .from("images")
+                .update({ is_public: true })
+                .eq("id", params.imageId);
+
+              if (error) {
+                throw new Error(error.message);
+              }
+
+              setIsPublic(true);
+              Alert.alert("Success", "Image shared to feed!");
+            } catch (error) {
+              console.error("Share to feed error:", error);
+              Alert.alert("Error", "Failed to share to feed");
+            } finally {
+              setSharing(false);
+            }
           },
-          body: JSON.stringify({ is_public: !isPublic }),
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error("Failed to update sharing status");
-      }
-
-      setIsPublic(!isPublic);
-      Alert.alert(
-        "Success",
-        isPublic ? "Image is now private" : "Image shared to feed!"
-      );
-    } catch (error) {
-      console.error("Toggle share error:", error);
-      Alert.alert("Error", "Failed to update sharing status");
-    } finally {
-      setToggling(false);
-    }
-  };
-
-  const handleSaveToDevice = async () => {
-    setLoading(true);
-    try {
-      // Request permissions
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert(
-          "Permission Required",
-          "Please allow access to save photos to your device."
-        );
-        return;
-      }
-
-      // Download image using modern expo-file-system API
-      const downloadedFile = await File.downloadFileAsync(
-        params.imageUrl,
-        new File(Paths.cache, `photoapp_${Date.now()}.jpg`),
-        { idempotent: true }
-      );
-
-      // Save to media library
-      await MediaLibrary.saveToLibraryAsync(downloadedFile.uri);
-
-      Alert.alert("Saved!", "Image saved to your photo library.");
-    } catch (error) {
-      console.error("Save error:", error);
-      Alert.alert("Error", "Failed to save image to device.");
-    } finally {
-      setLoading(false);
-    }
+        },
+      ]
+    );
   };
 
   const handleShare = async () => {
@@ -154,22 +150,39 @@ export default function ImagePreviewScreen() {
   };
 
   const confirmDelete = async () => {
-    if (!session?.access_token) return;
-
     setDeleting(true);
     try {
-      const response = await fetch(
-        `${API_URL}/api/images/${params.imageId}`,
-        {
-          method: "DELETE",
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-          },
-        }
-      );
+      // First get the storage path so we can delete the file too
+      const { data: imageData, error: fetchError } = await supabase
+        .from("images")
+        .select("storage_path")
+        .eq("id", params.imageId)
+        .single();
 
-      if (!response.ok) {
-        throw new Error("Failed to delete image");
+      if (fetchError) {
+        throw new Error(fetchError.message);
+      }
+
+      // Delete from storage if path exists
+      if (imageData?.storage_path) {
+        const { error: storageError } = await supabase.storage
+          .from("generations")
+          .remove([imageData.storage_path]);
+
+        if (storageError) {
+          console.warn("Failed to delete from storage:", storageError);
+          // Continue with database deletion even if storage fails
+        }
+      }
+
+      // Delete from database
+      const { error: deleteError } = await supabase
+        .from("images")
+        .delete()
+        .eq("id", params.imageId);
+
+      if (deleteError) {
+        throw new Error(deleteError.message);
       }
 
       Alert.alert("Deleted", "Image has been deleted.");
@@ -194,91 +207,99 @@ export default function ImagePreviewScreen() {
 
       {/* Header */}
       <SafeAreaView
-        className="absolute top-0 left-0 right-0 flex-row justify-between items-center px-4 py-2"
+        className="absolute top-0 left-0 right-0 flex-row justify-start items-center px-4 py-2"
         edges={["top"]}
       >
         <TouchableOpacity
           onPress={handleBack}
           className="w-11 h-11 rounded-full bg-black/50 items-center justify-center"
         >
-          <ArrowLeft color="white" size={24} />
+          <View pointerEvents="none">
+            <ArrowLeft color="white" size={24} />
+          </View>
         </TouchableOpacity>
+      </SafeAreaView>
 
-        <TouchableOpacity
-          onPress={handleSaveToDevice}
-          className="w-11 h-11 rounded-full bg-black/50 items-center justify-center"
+      {/* Bottom Actions - Only show for owner (gallery), hide for feed */}
+      {isOwner && (
+        <SafeAreaView
+          className="absolute bottom-0 left-0 right-0"
+          edges={["bottom"]}
         >
-          {loading ? (
-            <ActivityIndicator color="white" size="small" />
-          ) : (
-            <Download color="white" size={24} />
-          )}
-        </TouchableOpacity>
-      </SafeAreaView>
+          <View className="flex-row justify-evenly items-center pt-4 pb-4 px-5 bg-black/50">
+            {/* Save */}
+            <TouchableOpacity
+              className="items-center justify-center py-3 px-4 min-w-[80px]"
+              onPress={handleSave}
+              disabled={saving}
+              activeOpacity={0.7}
+            >
+              {saving ? (
+                <ActivityIndicator color="white" size="small" />
+              ) : (
+                <>
+                  <Download color="white" size={22} />
+                  <Text className="text-white text-xs font-medium mt-1.5">
+                    Save
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
 
-      {/* Bottom Actions */}
-      <SafeAreaView
-        className="absolute bottom-0 left-0 right-0 px-4 py-4"
-        edges={["bottom"]}
-      >
-        <View className="flex-row justify-center gap-3">
-          {isOwner && (
-            <>
-              {/* Share Toggle */}
-              <TouchableOpacity
-                className="flex-row items-center gap-2 bg-[#1a1517]/90 px-5 py-3.5 rounded-2xl border border-white/10 min-w-[100px]"
-                onPress={handleToggleShare}
-                disabled={toggling}
-              >
-                {toggling ? (
-                  <ActivityIndicator color="white" size="small" />
-                ) : isPublic ? (
-                  <>
-                    <Globe color="#10b981" size={20} />
-                    <Text className="text-emerald-500 text-sm font-medium">
-                      Shared
-                    </Text>
-                  </>
-                ) : (
-                  <>
-                    <Lock color="rgba(255,255,255,0.6)" size={20} />
-                    <Text className="text-white/80 text-sm font-medium">
-                      Private
-                    </Text>
-                  </>
-                )}
-              </TouchableOpacity>
+            {/* Share to Feed */}
+            <TouchableOpacity
+              className="items-center justify-center py-3 px-4 min-w-[80px]"
+              onPress={handleShareToFeed}
+              disabled={sharing || isPublic}
+              activeOpacity={0.7}
+            >
+              {sharing ? (
+                <ActivityIndicator color="white" size="small" />
+              ) : (
+                <>
+                  <Globe color={isPublic ? "#10b981" : "white"} size={22} />
+                  <Text
+                    className={`text-xs font-medium mt-1.5 ${
+                      isPublic ? "text-emerald-500" : "text-white"
+                    }`}
+                  >
+                    {isPublic ? "Shared" : "Share to Feed"}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
 
-              {/* Delete */}
-              <TouchableOpacity
-                className="flex-row items-center gap-2 bg-[#1a1517]/90 px-5 py-3.5 rounded-2xl border border-red-500/30"
-                onPress={handleDelete}
-                disabled={deleting}
-              >
-                {deleting ? (
-                  <ActivityIndicator color="#ef4444" size="small" />
-                ) : (
-                  <>
-                    <Trash2 color="#ef4444" size={20} />
-                    <Text className="text-red-500 text-sm font-medium">
-                      Delete
-                    </Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </>
-          )}
+            {/* Delete */}
+            <TouchableOpacity
+              className="items-center justify-center py-3 px-4 min-w-[80px]"
+              onPress={handleDelete}
+              disabled={deleting}
+              activeOpacity={0.7}
+            >
+              {deleting ? (
+                <ActivityIndicator color="#ef4444" size="small" />
+              ) : (
+                <>
+                  <Trash2 color="#ef4444" size={22} />
+                  <Text className="text-red-500 text-xs font-medium mt-1.5">
+                    Delete
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
 
-          {/* Share via native */}
-          <TouchableOpacity
-            className="flex-row items-center gap-2 bg-[#1a1517]/90 px-5 py-3.5 rounded-2xl border border-white/10"
-            onPress={handleShare}
-          >
-            <Share2 color="white" size={20} />
-            <Text className="text-white/80 text-sm font-medium">Share</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
+            {/* Share */}
+            <TouchableOpacity
+              className="items-center justify-center py-3 px-4 min-w-[80px]"
+              onPress={handleShare}
+              activeOpacity={0.7}
+            >
+              <Share2 color="white" size={22} />
+              <Text className="text-white text-xs font-medium mt-1.5">Share</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      )}
     </View>
   );
 }

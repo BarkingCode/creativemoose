@@ -3,82 +3,90 @@
  *
  * Main camera screen for signed-in users within tab navigation.
  * Features:
- * - Camera preview with real-time view
+ * - Camera preview with real-time view (disabled when tab not focused)
  * - Preset selector (horizontal carousel)
- * - Style picker (bottom sheet)
+ * - Style picker (vertical on left side)
  * - Capture button to take photo
  * - Credits display
  */
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useCallback } from "react";
 import {
   View,
   Text,
   Pressable,
-  ScrollView,
   Alert,
   ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { useIsFocused, useFocusEffect } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
+import { Image } from "expo-image";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSequence,
+  withTiming,
+} from "react-native-reanimated";
 import { useAuth } from "../../contexts/AuthContext";
-import { supabase, Credits } from "../../lib/supabase";
+import { useRevenueCat } from "../../contexts/RevenueCatContext";
 import { Image as ImageIcon, RefreshCw } from "lucide-react-native";
+import { HeaderButton } from "../../components/HeaderButton";
+import { StyleSwiper } from "../../components/StyleSwiper";
+import { FilterSwiper } from "../../components/FilterSwiper";
+import { PRESET_PICKER_OPTIONS } from "../../shared/presets";
+import { STYLE_PICKER_OPTIONS } from "../../shared/photo-styles";
 
-const PRESETS = [
-  { id: "mapleAutumn", name: "Maple Autumn", emoji: "🍁" },
-  { id: "winterWonderland", name: "Winter", emoji: "❄️" },
-  { id: "northernLights", name: "Aurora", emoji: "🌌" },
-  { id: "cottageLife", name: "Cottage", emoji: "🏕️" },
-  { id: "urbanCanada", name: "Urban", emoji: "🏙️" },
-  { id: "wildernessExplorer", name: "Wilderness", emoji: "🏔️" },
-  { id: "editorialCanada", name: "Editorial", emoji: "📸" },
-  { id: "canadianWildlifeParty", name: "Wildlife", emoji: "🦫" },
-  { id: "ehEdition", name: "Eh Edition", emoji: "🍁" },
-  { id: "withus", name: "With Us", emoji: "👥" },
-];
+// Max dimension for API uploads (keeps base64 under ~500KB)
+const MAX_IMAGE_DIMENSION = 1024;
 
-const STYLES = [
-  { id: "photorealistic", name: "Photo", emoji: "📷" },
-  { id: "cartoon", name: "Cartoon", emoji: "🎨" },
-  { id: "vintage50s", name: "50s Vibe", emoji: "📺" },
-  { id: "cinematic", name: "Cinematic", emoji: "🎬" },
-  { id: "oil-painting", name: "Oil Paint", emoji: "🖼️" },
-  { id: "watercolor", name: "Watercolor", emoji: "💧" },
-];
+/**
+ * Resize image to max dimension while maintaining aspect ratio
+ */
+async function resizeImageForUpload(uri: string): Promise<{ uri: string; base64: string }> {
+  const result = await ImageManipulator.manipulateAsync(
+    uri,
+    [{ resize: { width: MAX_IMAGE_DIMENSION } }],
+    { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+  );
+  return { uri: result.uri, base64: result.base64 || "" };
+}
 
 export default function GenerateScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const { credits, refreshCredits } = useRevenueCat();
   const cameraRef = useRef<CameraView>(null);
+  const isFocused = useIsFocused();
 
   const [permission, requestPermission] = useCameraPermissions();
-  const [selectedPreset, setSelectedPreset] = useState(PRESETS[0].id);
-  const [selectedStyle, setSelectedStyle] = useState(STYLES[0].id);
-  const [showStylePicker, setShowStylePicker] = useState(false);
+  const [selectedPreset, setSelectedPreset] = useState<string>(PRESET_PICKER_OPTIONS[0].id);
+  const [selectedStyle, setSelectedStyle] = useState<string>(STYLE_PICKER_OPTIONS[0].id);
   const [isCapturing, setIsCapturing] = useState(false);
-  const [credits, setCredits] = useState<Credits | null>(null);
+  const [isPickingImage, setIsPickingImage] = useState(false);
   const [facing, setFacing] = useState<CameraType>("front");
+  const [frozenPhotoUri, setFrozenPhotoUri] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchCredits();
-  }, [user]);
+  // Refresh credits when screen gains focus and clear frozen frame when leaving
+  useFocusEffect(
+    useCallback(() => {
+      // Refresh credits when tab gains focus
+      refreshCredits();
 
-  const fetchCredits = async () => {
-    if (!user) return;
+      return () => {
+        setFrozenPhotoUri(null);
+      };
+    }, [refreshCredits])
+  );
 
-    const { data } = await supabase
-      .from("credits")
-      .select("*")
-      .eq("user_id", user.id)
-      .single();
-
-    if (data) {
-      setCredits(data);
-    }
-  };
+  // Flash animation for capture effect
+  const flashOpacity = useSharedValue(0);
+  const flashStyle = useAnimatedStyle(() => ({
+    opacity: flashOpacity.value,
+  }));
 
   const handleCapture = async () => {
     if (!cameraRef.current) return;
@@ -92,18 +100,30 @@ export default function GenerateScreen() {
 
     setIsCapturing(true);
 
+    // Trigger flash effect
+    flashOpacity.value = withSequence(
+      withTiming(0.7, { duration: 50 }),   // Quick brighten
+      withTiming(0, { duration: 150 })     // Fade out
+    );
+
     try {
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.8,
-        base64: true,
+        quality: 0.9,
       });
 
       if (photo) {
+        // Freeze frame immediately after capture
+        setFrozenPhotoUri(photo.uri);
+
+        // Resize image for API upload (keeps payload small)
+        const resized = await resizeImageForUpload(photo.uri);
+        console.log("[GenerateScreen] Image resized, base64 size:", Math.round(resized.base64.length / 1024), "KB");
+
         router.push({
           pathname: "/(app)/results",
           params: {
-            photoUri: photo.uri,
-            photoBase64: photo.base64,
+            photoUri: resized.uri,
+            photoBase64: resized.base64,
             presetId: selectedPreset,
             styleId: selectedStyle,
           },
@@ -111,6 +131,7 @@ export default function GenerateScreen() {
       }
     } catch (error) {
       console.error("Failed to capture photo:", error);
+      setFrozenPhotoUri(null); // Clear on error
       Alert.alert("Error", "Failed to capture photo. Please try again.");
     } finally {
       setIsCapturing(false);
@@ -125,23 +146,31 @@ export default function GenerateScreen() {
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
-      base64: true,
-    });
-
-    if (!result.canceled && result.assets[0]) {
-      const asset = result.assets[0];
-      router.push({
-        pathname: "/(app)/results",
-        params: {
-          photoUri: asset.uri,
-          photoBase64: asset.base64,
-          presetId: selectedPreset,
-          styleId: selectedStyle,
-        },
+    setIsPickingImage(true);
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.9,
       });
+
+      if (!result.canceled && result.assets[0]) {
+        const asset = result.assets[0];
+        // Resize image for API upload (keeps payload small)
+        const resized = await resizeImageForUpload(asset.uri);
+        console.log("[GenerateScreen] Image resized, base64 size:", Math.round(resized.base64.length / 1024), "KB");
+
+        router.push({
+          pathname: "/(app)/results",
+          params: {
+            photoUri: resized.uri,
+            photoBase64: resized.base64,
+            presetId: selectedPreset,
+            styleId: selectedStyle,
+          },
+        });
+      }
+    } finally {
+      setIsPickingImage(false);
     }
   };
 
@@ -178,145 +207,155 @@ export default function GenerateScreen() {
 
   const totalCredits =
     (credits?.free_credits || 0) + (credits?.image_credits || 0);
-  const selectedStyleData = STYLES.find((s) => s.id === selectedStyle);
 
   return (
     <View className="flex-1 bg-background">
-      <CameraView
-        ref={cameraRef}
-        style={{ flex: 1 }}
-        facing={facing}
-        mode="picture"
-      >
-        <SafeAreaView className="flex-1" edges={["top"]}>
-          {/* Top Bar */}
-          <View className="flex-row items-center justify-between px-4 pt-2">
-            <View className="flex-row items-center">
-              <Text className="text-xl bg-[#1a1517]/80 p-2 rounded-xl overflow-hidden">
-                📸
-              </Text>
-              <Text className="text-white font-bold text-lg ml-2">
-                PhotoApp
+      {isFocused ? (
+        <>
+          {/* Full-screen loading overlay - shows immediately on capture */}
+          {isCapturing && (
+            <View className="absolute inset-0 z-50 bg-background/90 items-center justify-center">
+              <ActivityIndicator size="large" color="#fff" />
+              <Text className="text-white text-lg font-semibold mt-4">
+                Capturing...
               </Text>
             </View>
+          )}
 
-            <View className="bg-[#1a1517]/80 px-3 py-2 rounded-[20px]">
-              <Text className="text-white font-semibold text-sm">
-                {totalCredits} {totalCredits === 1 ? "credit" : "credits"}
-              </Text>
-            </View>
-          </View>
+          {/* Camera layer */}
+          <CameraView
+            ref={cameraRef}
+            style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
+            facing={facing}
+            mode="picture"
+          />
 
-          <View className="flex-1" />
+          {/* Flash overlay for capture effect */}
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              {
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: "white",
+                zIndex: 40,
+              },
+              flashStyle,
+            ]}
+          />
 
-          {/* Bottom Controls */}
-          <View className="pb-[100px]">
-            {/* Preset Selector */}
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              className="mb-4"
-              contentContainerStyle={{ paddingHorizontal: 16 }}
-            >
-              {PRESETS.map((preset) => (
-                <Pressable
-                  key={preset.id}
-                  onPress={() => setSelectedPreset(preset.id)}
-                  className={`flex-row items-center px-4 py-2.5 rounded-[20px] mr-2 ${
-                    selectedPreset === preset.id
-                      ? "bg-white"
-                      : "bg-[#1a1517]/80"
-                  }`}
-                >
-                  <Text className="text-base mr-1.5">{preset.emoji}</Text>
-                  <Text
-                    className={`font-medium text-sm ${
-                      selectedPreset === preset.id
-                        ? "text-background"
-                        : "text-white"
-                    }`}
-                  >
-                    {preset.name}
-                  </Text>
-                </Pressable>
-              ))}
-            </ScrollView>
+          {/* Frozen frame overlay - displays captured photo instantly */}
+          {/* Mirror when using front camera to match preview appearance */}
+          {frozenPhotoUri && (
+            <Image
+              source={{ uri: frozenPhotoUri }}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 45,
+                transform: facing === "front" ? [{ scaleX: -1 }] : undefined,
+              }}
+              contentFit="cover"
+            />
+          )}
 
-            {/* Action Buttons */}
-            <View className="flex-row items-center justify-center px-4">
-              <Pressable
-                onPress={handlePickImage}
-                className="bg-[#1a1517]/80 w-14 h-14 rounded-full items-center justify-center"
-              >
-                <ImageIcon color="white" size={24} />
-              </Pressable>
+          {/* UI overlay layer */}
+          <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
+            {/* Top Bar */}
+            <View className="flex-row items-center justify-between px-4 pt-2">
+              {/* Close button */}
+              <HeaderButton variant="close" onPress={() => router.back()} />
 
-              <Pressable
-                onPress={handleCapture}
-                disabled={isCapturing}
-                className="w-20 h-20 rounded-full border-4 border-white items-center justify-center mx-6"
-              >
-                <View
-                  className={`w-16 h-16 rounded-full bg-white ${
-                    isCapturing ? "opacity-50" : ""
-                  }`}
-                />
-              </Pressable>
+              {/* Centered Logo */}
+              <Image
+                source={require("../../assets/logo.png")}
+                style={{ width: 120, height: 40 }}
+                contentFit="contain"
+              />
 
-              <Pressable
-                onPress={() => setShowStylePicker(!showStylePicker)}
-                className="bg-[#1a1517]/80 w-14 h-14 rounded-full items-center justify-center"
-              >
-                <Text className="text-2xl">{selectedStyleData?.emoji}</Text>
-              </Pressable>
-            </View>
-
-            {/* Style Picker */}
-            {showStylePicker && (
-              <View className="mt-4 mx-4 bg-[#1a1517] rounded-2xl p-4">
-                <Text className="text-white font-semibold text-base mb-3">
-                  Select Style
+              {/* Credits */}
+              <View className="bg-neutral-900/80 px-3 py-2 rounded-[20px]">
+                <Text className="text-white font-semibold text-sm">
+                  {totalCredits} {totalCredits === 1 ? "credit" : "credits"}
                 </Text>
-                <View className="flex-row flex-wrap">
-                  {STYLES.map((style) => (
-                    <Pressable
-                      key={style.id}
-                      onPress={() => {
-                        setSelectedStyle(style.id);
-                        setShowStylePicker(false);
-                      }}
-                      className={`flex-row items-center px-3.5 py-2.5 rounded-[20px] mr-2 mb-2 ${
-                        selectedStyle === style.id
-                          ? "bg-white"
-                          : "bg-white/10"
-                      }`}
-                    >
-                      <Text className="text-sm mr-1.5">{style.emoji}</Text>
-                      <Text
-                        className={`font-medium text-[13px] ${
-                          selectedStyle === style.id
-                            ? "text-background"
-                            : "text-white"
-                        }`}
-                      >
-                        {style.name}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
               </View>
-            )}
+            </View>
 
-            {/* Flip Camera */}
-            <Pressable
-              onPress={() => setFacing(facing === "front" ? "back" : "front")}
-              className="absolute right-4 bottom-[140px] bg-[#1a1517]/80 w-10 h-10 rounded-full items-center justify-center"
-            >
-              <RefreshCw color="white" size={20} />
-            </Pressable>
-          </View>
-        </SafeAreaView>
-      </CameraView>
+            {/* Style Swiper - left side */}
+            <StyleSwiper
+              styles={STYLE_PICKER_OPTIONS}
+              selectedStyleId={selectedStyle}
+              onStyleChange={setSelectedStyle}
+            />
+
+            <View className="flex-1" />
+
+            {/* Bottom Controls */}
+            <View className="pb-6">
+              {/* Preset Selector - Centered swipeable */}
+              <View className="mb-4">
+                <FilterSwiper
+                  filters={PRESET_PICKER_OPTIONS}
+                  selectedFilterId={selectedPreset}
+                  onFilterChange={setSelectedPreset}
+                />
+              </View>
+
+              {/* Action Buttons */}
+              <View className="relative">
+                <View className="flex-row items-center justify-center px-4">
+                  <Pressable
+                    onPress={handlePickImage}
+                    disabled={isPickingImage}
+                    className="bg-neutral-900/80 w-14 h-14 rounded-full items-center justify-center"
+                  >
+                    {isPickingImage ? (
+                      <ActivityIndicator color="white" size="small" />
+                    ) : (
+                      <View pointerEvents="none">
+                        <ImageIcon color="white" size={24} />
+                      </View>
+                    )}
+                  </Pressable>
+
+                  <Pressable
+                    onPress={handleCapture}
+                    disabled={isCapturing}
+                    className="w-20 h-20 rounded-full border-4 border-white items-center justify-center mx-6"
+                  >
+                    {isCapturing ? (
+                      <ActivityIndicator color="white" size="large" />
+                    ) : (
+                      <View className="w-16 h-16 rounded-full bg-white" />
+                    )}
+                  </Pressable>
+
+                  {/* Placeholder for symmetry */}
+                  <View className="w-14 h-14" />
+                </View>
+
+                {/* Flip Camera - aligned with shutter button */}
+                <Pressable
+                  onPress={() => setFacing(facing === "front" ? "back" : "front")}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 bg-neutral-900/80 w-10 h-10 rounded-full items-center justify-center"
+                >
+                  <View pointerEvents="none">
+                    <RefreshCw color="white" size={20} />
+                  </View>
+                </Pressable>
+              </View>
+            </View>
+          </SafeAreaView>
+        </>
+      ) : (
+        <View className="flex-1 bg-background" />
+      )}
     </View>
   );
 }

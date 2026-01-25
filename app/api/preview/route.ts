@@ -1,61 +1,24 @@
 /**
- * Preview API Route
+ * Preview API Route - Thin proxy to Supabase Edge Function
  *
- * POST: Generate watermarked preview images for anonymous users.
- * - Tracks free tries via client-side localStorage (validated here)
- * - Returns watermarked, downscaled images as base64 (no storage)
- * - Rate limited by IP to prevent abuse
+ * This route:
+ * 1. Converts FormData photo to base64
+ * 2. Forwards the request to the Supabase Edge Function
+ * 3. Returns the Edge Function response
+ *
+ * The Edge Function handles:
+ * - Rate limiting by IP (persistent in Supabase DB)
+ * - fal.ai API calls for image generation
+ * - Response formatting
+ *
+ * Note: Preview generates a single watermarked image (vs 4 for paid)
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { generateImages } from "@/lib/image-generation";
-import { getPreset, getPresetPromptsWithStyle } from "@/lib/presets";
-import { watermarkAndDownscale } from "@/lib/watermark";
-import { readFile } from "fs/promises";
-import path from "path";
-
-// Simple in-memory rate limiting by IP
-// In production, use Redis or similar
-const ipGenerations = new Map<string, { count: number; resetAt: number }>();
-const MAX_GENERATIONS_PER_IP = 5; // Maximum per day per IP
-const RATE_LIMIT_WINDOW = 24 * 60 * 60 * 1000; // 24 hours
-
-function checkRateLimit(ip: string): { allowed: boolean; remaining: number } {
-  const now = Date.now();
-  const record = ipGenerations.get(ip);
-
-  if (!record || record.resetAt < now) {
-    // Reset or new entry
-    ipGenerations.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW });
-    return { allowed: true, remaining: MAX_GENERATIONS_PER_IP - 1 };
-  }
-
-  if (record.count >= MAX_GENERATIONS_PER_IP) {
-    return { allowed: false, remaining: 0 };
-  }
-
-  record.count++;
-  return { allowed: true, remaining: MAX_GENERATIONS_PER_IP - record.count };
-}
 
 export async function POST(req: NextRequest) {
   try {
-    // Get client IP for rate limiting
-    const forwardedFor = req.headers.get("x-forwarded-for");
-    const ip = forwardedFor?.split(",")[0]?.trim() || "unknown";
-
-    // Check rate limit
-    const rateLimit = checkRateLimit(ip);
-    if (!rateLimit.allowed) {
-      return NextResponse.json(
-        {
-          error: "Rate limit exceeded. Please try again later or sign up for more generations.",
-          code: "RATE_LIMITED",
-        },
-        { status: 429 }
-      );
-    }
-
+    // Parse FormData
     const formData = await req.formData();
     const photoFile = formData.get("photo") as File;
     const presetId = formData.get("presetId") as string;
@@ -68,74 +31,91 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const preset = getPreset(presetId);
-    if (!preset) {
-      return NextResponse.json({ error: "Invalid preset" }, { status: 400 });
-    }
+    // Convert photo to base64 data URL
+    const photoBuffer = Buffer.from(await photoFile.arrayBuffer());
+    const imageUrl = `data:${photoFile.type};base64,${photoBuffer.toString("base64")}`;
 
-    // Video presets not supported in preview
-    if (preset.type === "video") {
+    // Get Supabase URL from environment
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    if (!supabaseUrl) {
+      console.error("NEXT_PUBLIC_SUPABASE_URL not configured");
       return NextResponse.json(
-        { error: "Video generation requires a signed-in account" },
-        { status: 400 }
+        { error: "Server configuration error" },
+        { status: 500 }
       );
     }
 
-    // Convert photo to base64
-    const photoBuffer = Buffer.from(await photoFile.arrayBuffer());
-    const photoBase64 = `data:${photoFile.type};base64,${photoBuffer.toString("base64")}`;
+    // Get client IP for rate limiting (passed to Edge Function via headers)
+    const forwardedFor = req.headers.get("x-forwarded-for");
+    const clientIp = forwardedFor?.split(",")[0]?.trim() || "unknown";
 
-    // Load reference images if needed
-    let referenceImages: string[] | undefined;
-    if (preset.requiresRefs) {
-      try {
-        if (presetId === "ilacSceneMatch") {
-          const refs = ["ilac1.jpg", "ilac2.jpg", "ilac3.jpg", "ilac4.jpg"];
-          referenceImages = await Promise.all(
-            refs.map(async (ref) => {
-              const refPath = path.join(process.cwd(), `public/refs/${ref}`);
-              const refBuffer = await readFile(refPath);
-              return `data:image/jpeg;base64,${refBuffer.toString("base64")}`;
-            })
-          );
-        } else {
-          // Default "With Us" references
-          const ref1Path = path.join(process.cwd(), "public/refs/withus_guyA.jpg");
-          const ref2Path = path.join(process.cwd(), "public/refs/withus_guyB.jpg");
-          const ref1Buffer = await readFile(ref1Path);
-          const ref2Buffer = await readFile(ref2Path);
-          referenceImages = [
-            `data:image/jpeg;base64,${ref1Buffer.toString("base64")}`,
-            `data:image/jpeg;base64,${ref2Buffer.toString("base64")}`,
-          ];
-        }
-      } catch (error) {
-        console.error("Error loading reference images:", error);
-      }
+    // Get the anon key for unauthenticated requests
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!supabaseAnonKey) {
+      console.error("NEXT_PUBLIC_SUPABASE_ANON_KEY not configured");
+      return NextResponse.json(
+        { error: "Server configuration error" },
+        { status: 500 }
+      );
     }
 
-    // Get styled prompts
-    const styledPrompts = getPresetPromptsWithStyle(presetId, styleId as any);
+    // Call the Supabase Edge Function (no auth required for preview)
+    const edgeFunctionUrl = `${supabaseUrl}/functions/v1/preview`;
 
-    // Generate images
-    const result = await generateImages({
-      baseImage: photoBase64,
-      referenceImages,
-      prompts: styledPrompts,
-      quality: "high",
+    const edgeResponse = await fetch(edgeFunctionUrl, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${supabaseAnonKey}`,
+        "Content-Type": "application/json",
+        "X-Forwarded-For": clientIp,
+        "X-Real-IP": clientIp,
+      },
+      body: JSON.stringify({
+        imageUrl,
+        presetId,
+        styleId,
+      }),
     });
 
-    // Watermark and downscale all images (always downscale for preview)
-    const watermarkedImages = await Promise.all(
-      result.images.map((img) => watermarkAndDownscale(img, true)) // true = downscale
-    );
+    // Parse the Edge Function response
+    const data = await edgeResponse.json();
+
+    if (!edgeResponse.ok) {
+      console.error("Preview Edge Function error:", data);
+
+      // Handle rate limit error
+      if (edgeResponse.status === 429 || data.code === "RATE_LIMITED") {
+        return NextResponse.json(
+          {
+            error: data.message || "Rate limit exceeded. Please try again later or sign up for more generations.",
+            code: "RATE_LIMITED",
+            retryAfter: data.retryAfter,
+          },
+          {
+            status: 429,
+            headers: data.retryAfter
+              ? { "Retry-After": String(Math.ceil(data.retryAfter / 1000)) }
+              : {},
+          }
+        );
+      }
+
+      return NextResponse.json(
+        { error: data.error || "Preview generation failed" },
+        { status: edgeResponse.status }
+      );
+    }
+
+    // Transform Edge Function response to match expected frontend format
+    // Edge Function returns: { success, images: [{ url }], isPreview, watermarkRequired, ... }
+    // Frontend expects: { success, images: [url1, ...], isPreview, type, ... }
+    const imageUrls = data.images?.map((img: { url: string }) => img.url) || [];
 
     return NextResponse.json({
       success: true,
-      images: watermarkedImages, // Base64 images
-      metadata: result.metadata,
+      images: imageUrls,
       isPreview: true,
-      remainingTries: rateLimit.remaining,
+      watermarkRequired: data.watermarkRequired,
       type: "image",
     });
   } catch (error) {

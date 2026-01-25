@@ -42,7 +42,8 @@ export default function TabLayout() {
           borderTopColor: "rgba(255, 255, 255, 0.1)",
           height: 85,
           paddingTop: 8,
-          paddingBottom: 25,
+          paddingBottom: 24,
+          paddingHorizontal: 24,
         },
         tabBarActiveTintColor: "white",
         tabBarInactiveTintColor: "rgba(255, 255, 255, 0.5)",
@@ -61,7 +62,9 @@ export default function TabLayout() {
             <View
               className={`p-2 rounded-xl ${focused ? "bg-white/10" : ""}`}
             >
-              <Home color={color} size={24} strokeWidth={2} />
+              <View pointerEvents="none">
+                <Home color={color} size={24} strokeWidth={2} />
+              </View>
             </View>
           ),
         }}
@@ -70,9 +73,12 @@ export default function TabLayout() {
         name="generate"
         options={{
           title: "",
+          tabBarStyle: { display: "none" },
           tabBarIcon: ({ focused }) => (
-            <View className="w-14 h-14 rounded-2xl bg-white justify-center items-center mb-5 shadow-lg shadow-white/30">
-              <Plus color="#0f0a0a" size={28} strokeWidth={2.5} />
+            <View className="w-14 h-14 rounded-2xl bg-white justify-center items-center mb-10 shadow-lg shadow-white/30">
+              <View pointerEvents="none">
+                <Plus color="#0f0a0a" size={28} strokeWidth={2.5} />
+              </View>
             </View>
           ),
           tabBarLabel: () => null,
@@ -86,7 +92,9 @@ export default function TabLayout() {
             <View
               className={`p-2 rounded-xl ${focused ? "bg-white/10" : ""}`}
             >
-              <ImageIcon color={color} size={24} strokeWidth={2} />
+              <View pointerEvents="none">
+                <ImageIcon color={color} size={24} strokeWidth={2} />
+              </View>
             </View>
           ),
         }}

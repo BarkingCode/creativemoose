@@ -51,7 +51,7 @@ export function TabBar() {
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 px-4 pb-safe">
       <div className="max-w-lg mx-auto">
-        <div className="bg-[#1a1517]/90 backdrop-blur-xl border border-white/10 rounded-2xl mb-4 px-2 py-2 flex items-center justify-around">
+        <div className="bg-neutral-900/90 backdrop-blur-xl border border-white/10 rounded-2xl mb-4 px-2 py-2 flex items-center justify-around">
           {tabs.map((tab) => {
             const isActive =
               pathname === tab.href ||
