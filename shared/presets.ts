@@ -1,5 +1,7 @@
 /**
- * Preset definitions for AI image generation.
+ * Preset Definitions
+ *
+ * Shared definitions for generation presets used across web and mobile apps.
  * Each preset contains prompt variants for generating creative scene-based images.
  */
 
@@ -8,6 +10,7 @@ import { PhotoStyleId } from './photo-styles';
 export interface Preset {
   id: string;
   name: string;
+  emoji: string;
   description: string;
   prompt: string; // Single creative prompt instead of array
   requiresRefs: boolean;
@@ -33,6 +36,7 @@ export const PRESETS: Record<string, Preset> = {
   mapleAutumn: {
     id: "mapleAutumn",
     name: "Maple Autumn",
+    emoji: "🍁",
     description: "Golden fall leaves and cozy Canadian atmosphere",
     requiresRefs: false,
     type: 'image',
@@ -41,6 +45,7 @@ export const PRESETS: Record<string, Preset> = {
   winterWonderland: {
     id: "winterWonderland",
     name: "Winter Wonderland",
+    emoji: "❄️",
     description: "Snowy Canadian winter moments",
     requiresRefs: false,
     type: 'image',
@@ -49,6 +54,7 @@ export const PRESETS: Record<string, Preset> = {
   northernLights: {
     id: "northernLights",
     name: "Northern Lights",
+    emoji: "🌌",
     description: "Magical aurora and night sky filters",
     requiresRefs: false,
     type: 'image',
@@ -57,6 +63,7 @@ export const PRESETS: Record<string, Preset> = {
   cottageLife: {
     id: "cottageLife",
     name: "Cottage Life",
+    emoji: "🏕️",
     description: "Peaceful lakefront and cozy cabin filters",
     requiresRefs: false,
     type: 'image',
@@ -65,6 +72,7 @@ export const PRESETS: Record<string, Preset> = {
   urbanCanada: {
     id: "urbanCanada",
     name: "Urban Canada",
+    emoji: "🏙️",
     description: "Modern Canadian city life filter",
     requiresRefs: false,
     type: 'image',
@@ -74,6 +82,7 @@ export const PRESETS: Record<string, Preset> = {
   wildernessExplorer: {
     id: "wildernessExplorer",
     name: "Wilderness Explorer",
+    emoji: "🏔️",
     description: "Wild landscapes and adventure scenes",
     requiresRefs: false,
     type: 'image',
@@ -82,6 +91,7 @@ export const PRESETS: Record<string, Preset> = {
   editorialCanada: {
     id: "editorialCanada",
     name: "Editorial Canada",
+    emoji: "📸",
     description: "Stylish portrait filters inspired by Canadian fashion & culture",
     requiresRefs: false,
     type: 'image',
@@ -90,6 +100,7 @@ export const PRESETS: Record<string, Preset> = {
   canadianWildlifeParty: {
     id: "canadianWildlifeParty",
     name: "Canadian Wildlife Party",
+    emoji: "🦫",
     description: "Funny and surreal wildlife interactions in Canadian settings",
     requiresRefs: false,
     type: 'image',
@@ -98,6 +109,7 @@ export const PRESETS: Record<string, Preset> = {
   ehEdition: {
     id: "ehEdition",
     name: "Eh Edition",
+    emoji: "🍁",
     description: "Lighthearted and comedic takes on Canadian stereotypes",
     requiresRefs: false,
     type: 'image',
@@ -105,7 +117,8 @@ export const PRESETS: Record<string, Preset> = {
   },
   withus: {
     id: "withus",
-    name: "With Eray and Evren",
+    name: "With Us",
+    emoji: "👥",
     description: "User appears with two reference hosts in Canadian settings",
     requiresRefs: true,
     type: 'image',
@@ -169,3 +182,10 @@ export function getPresetPromptsWithStyle(presetId: string, styleId: PhotoStyleI
   // Return the same prompt 4 times (AI will create 4 unique variations)
   return [styledPrompt, styledPrompt, styledPrompt, styledPrompt];
 }
+
+/** Picker-friendly array with id, name, emoji (for carousels/swipers) */
+export const PRESET_PICKER_OPTIONS = PRESET_ORDER.map((id) => ({
+  id: PRESETS[id].id,
+  name: PRESETS[id].name,
+  emoji: PRESETS[id].emoji,
+}));

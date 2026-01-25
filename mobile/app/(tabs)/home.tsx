@@ -1,34 +1,40 @@
 /**
  * Home Feed Screen
  *
- * Displays public shared images from all users.
- * Infinite scroll with pull-to-refresh.
+ * Displays public shared images from all users in a single-column feed.
+ * Uses FlashList for performant scrolling with infinite scroll and pull-to-refresh.
  *
  * Features:
- * - Grid layout of shared images
+ * - Full-width single-column image layout
  * - User avatars and names
  * - Pull to refresh
- * - Load more on scroll
+ * - Load more on scroll (infinite pagination)
+ * - Real-time updates via Supabase Realtime subscription
+ *   (new shared images appear instantly without refresh)
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   View,
   Text,
-  FlatList,
   RefreshControl,
   ActivityIndicator,
   Dimensions,
   TouchableOpacity,
 } from "react-native";
+import { FlashList } from "@shopify/flash-list";
 import { Image } from "expo-image";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { supabase } from "../../lib/supabase";
+import { RealtimeChannel } from "@supabase/supabase-js";
+import { useAuth } from "../../contexts/AuthContext";
+import { Avatar } from "../../components/Avatar";
 
 const { width } = Dimensions.get("window");
-const IMAGE_SIZE = (width - 48) / 2;
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const IMAGE_SIZE = width; // Edge-to-edge full width
+const PAGE_SIZE = 20;
 
 interface FeedImage {
   id: string;
@@ -42,12 +48,101 @@ interface FeedImage {
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const [images, setImages] = useState<FeedImage[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const channelRef = useRef<RealtimeChannel | null>(null);
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState<string | null>(null);
+
+  // Fetch current user's profile avatar
+  useEffect(() => {
+    const fetchProfileAvatar = async () => {
+      if (!user?.id) return;
+      try {
+        const { data } = await supabase
+          .from("profiles")
+          .select("avatar_url")
+          .eq("id", user.id)
+          .single();
+        if (data?.avatar_url) {
+          setProfileAvatarUrl(data.avatar_url);
+        }
+      } catch (err) {
+        // Silently fail - will use OAuth avatar or initials
+      }
+    };
+    fetchProfileAvatar();
+  }, [user?.id]);
+
+  // Set up Realtime subscription for new public images
+  useEffect(() => {
+    const channel = supabase
+      .channel('public-feed')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'images',
+          filter: 'is_public=eq.true',
+        },
+        (payload) => {
+          // Add new image to top of feed
+          const newImage: FeedImage = {
+            id: payload.new.id,
+            user_id: payload.new.user_id,
+            image_url: payload.new.image_url,
+            preset_id: payload.new.preset_id,
+            created_at: payload.new.created_at,
+            user_avatar_url: null,
+            user_name: null,
+          };
+          setImages((prev) => [newImage, ...prev]);
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'images',
+          filter: 'is_public=eq.true',
+        },
+        (payload) => {
+          // Handle images that are newly shared (is_public changed to true)
+          if (payload.old.is_public === false && payload.new.is_public === true) {
+            const newImage: FeedImage = {
+              id: payload.new.id,
+              user_id: payload.new.user_id,
+              image_url: payload.new.image_url,
+              preset_id: payload.new.preset_id,
+              created_at: payload.new.created_at,
+              user_avatar_url: null,
+              user_name: null,
+            };
+            // Avoid duplicates
+            setImages((prev) => {
+              if (prev.some(img => img.id === newImage.id)) return prev;
+              return [newImage, ...prev];
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    channelRef.current = channel;
+
+    // Cleanup on unmount
+    return () => {
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+      }
+    };
+  }, []);
 
   const fetchFeed = useCallback(async (offset = 0, refresh = false) => {
     try {
@@ -60,23 +155,53 @@ export default function HomeScreen() {
       }
       setError(null);
 
-      const response = await fetch(
-        `${API_URL}/api/feed?limit=20&offset=${offset}`
-      );
+      // Query images with profile info via join
+      const { data: feedImages, error: fetchError } = await supabase
+        .from("images")
+        .select(`
+          id,
+          user_id,
+          generation_batch_id,
+          image_url,
+          preset_id,
+          created_at,
+          profiles:user_id (
+            display_name,
+            full_name,
+            avatar_url
+          )
+        `)
+        .eq("is_public", true)
+        .order("created_at", { ascending: false })
+        .range(offset, offset + PAGE_SIZE - 1);
 
-      if (!response.ok) {
-        throw new Error("Failed to fetch feed");
+      if (fetchError) {
+        throw new Error(fetchError.message);
       }
 
-      const data = await response.json();
+      // Transform data with profile info
+      const transformedImages = (feedImages || []).map((img: any) => {
+        const profile = img.profiles;
+        return {
+          id: img.id,
+          user_id: img.user_id,
+          generation_batch_id: img.generation_batch_id,
+          image_url: img.image_url,
+          preset_id: img.preset_id,
+          created_at: img.created_at,
+          user_avatar_url: profile?.avatar_url || null,
+          user_name: profile?.display_name || profile?.full_name || null,
+        };
+      });
 
       if (refresh || offset === 0) {
-        setImages(data.images || []);
+        setImages(transformedImages);
       } else {
-        setImages((prev) => [...prev, ...(data.images || [])]);
+        setImages((prev) => [...prev, ...transformedImages]);
       }
 
-      setHasMore(data.hasMore ?? false);
+      // Check if there might be more
+      setHasMore(transformedImages.length === PAGE_SIZE);
     } catch (err: any) {
       console.error("Feed error:", err);
       setError(err.message || "Failed to load feed");
@@ -87,9 +212,11 @@ export default function HomeScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchFeed(0);
-  }, [fetchFeed]);
+  useFocusEffect(
+    useCallback(() => {
+      fetchFeed(0, true);
+    }, [fetchFeed])
+  );
 
   const handleRefresh = () => {
     fetchFeed(0, true);
@@ -114,8 +241,8 @@ export default function HomeScreen() {
 
   const renderItem = ({ item }: { item: FeedImage }) => (
     <TouchableOpacity
-      className="rounded-2xl overflow-hidden bg-[#1a1517]"
-      style={{ width: IMAGE_SIZE }}
+      className="overflow-hidden bg-neutral-900"
+      style={{ width: IMAGE_SIZE, marginBottom: 16 }}
       onPress={() => handleImagePress(item)}
       activeOpacity={0.9}
     >
@@ -127,19 +254,11 @@ export default function HomeScreen() {
       />
       {item.user_name && (
         <View className="flex-row items-center p-2.5 gap-2">
-          {item.user_avatar_url ? (
-            <Image
-              source={{ uri: item.user_avatar_url }}
-              style={{ width: 24, height: 24, borderRadius: 12 }}
-              contentFit="cover"
-            />
-          ) : (
-            <View className="w-6 h-6 rounded-full bg-white/10 justify-center items-center">
-              <Text className="text-white text-xs font-semibold">
-                {item.user_name.charAt(0).toUpperCase()}
-              </Text>
-            </View>
-          )}
+          <Avatar
+            url={item.user_avatar_url}
+            name={item.user_name}
+            size="small"
+          />
           <Text className="text-white/70 text-[13px] flex-1" numberOfLines={1}>
             {item.user_name}
           </Text>
@@ -171,10 +290,28 @@ export default function HomeScreen() {
     );
   };
 
+  // Get user info for header avatar
+  const userName =
+    user?.user_metadata?.full_name ||
+    user?.user_metadata?.name ||
+    user?.email?.split("@")[0] ||
+    "U";
+  // Prefer profile avatar from DB, then OAuth avatar
+  const effectiveAvatarUrl =
+    profileAvatarUrl ||
+    user?.user_metadata?.avatar_url ||
+    user?.user_metadata?.picture;
+
   return (
     <SafeAreaView className="flex-1 bg-background" edges={["top"]}>
-      <View className="px-4 py-3">
+      <View className="flex-row items-center justify-between px-4 py-3">
         <Text className="text-[28px] font-bold text-white">Discover</Text>
+        <Avatar
+          url={effectiveAvatarUrl}
+          name={userName}
+          size="medium"
+          onPress={() => router.push("/(app)/profile")}
+        />
       </View>
 
       {loading && images.length === 0 ? (
@@ -194,13 +331,12 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
       ) : (
-        <FlatList
+        <FlashList
           data={images}
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
-          numColumns={2}
-          contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
-          columnWrapperStyle={{ justifyContent: "space-between", marginBottom: 16 }}
+          estimatedItemSize={IMAGE_SIZE + 16}
+          contentContainerStyle={{ paddingBottom: 100 }}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

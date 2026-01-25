@@ -1,33 +1,41 @@
 /**
- * API route for paid generation with credit deduction.
- * Validates credits, decrements, and calls NB-G2.5 for images or Veo 3.1 for videos.
- * Uploads generated images to Supabase Storage and saves records to images table.
+ * API route for paid generation - Uses parallel generation flow
+ *
+ * This route:
+ * 1. Validates the user's auth via Supabase
+ * 2. Converts FormData photo to base64
+ * 3. Calls reserve-credit to get a sessionId
+ * 4. Calls generate-single 4 times in parallel
+ * 5. Returns all generated images
+ *
+ * This matches the mobile app's parallel generation flow for consistency.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { createClient, createAdminClient } from "@/lib/supabase/server";
-import { decrementCredit, getCredits, getTotalCredits } from "@/lib/credits";
-import { generateImages } from "@/lib/image-generation";
-import { generateVideo } from "@/lib/video-generation";
-import { getPreset, getPresetPromptsWithStyle } from "@/lib/presets";
-import { watermarkAndDownscale } from "@/lib/watermark";
-import { uploadImageBatch, generateBatchId } from "@/lib/storage";
-import crypto from "crypto";
-import { readFile } from "fs/promises";
-import path from "path";
+import { createClient } from "@/lib/supabase/server";
+
+interface GenerateSingleResult {
+  success: boolean;
+  variationIndex: number;
+  imageUrl: string;
+  imageId: string | null;
+  generationId?: string;
+}
 
 export async function POST(req: NextRequest) {
   try {
     const supabase = await createClient();
 
+    // Get user session and access token
     const {
-      data: { user },
-    } = await supabase.auth.getUser();
+      data: { session },
+    } = await supabase.auth.getSession();
 
-    if (!user) {
+    if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Parse FormData
     const formData = await req.formData();
     const photoFile = formData.get("photo") as File;
     const presetId = formData.get("presetId") as string;
@@ -40,172 +48,110 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const preset = getPreset(presetId);
-    if (!preset) {
-      return NextResponse.json({ error: "Invalid preset" }, { status: 400 });
-    }
-
-    // Check if this is a video preset
-    const isVideoPreset = preset.type === "video";
-
-    // Video generation not yet supported with Supabase
-    if (isVideoPreset) {
-      return NextResponse.json(
-        { error: "Video generation not yet supported" },
-        { status: 400 }
-      );
-    }
-
-    // Check current credits
-    const creditInfo = await getCredits(user.id);
-    const totalCredits = await getTotalCredits(user.id);
-    const isFreeGeneration = (creditInfo?.total_generations || 0) === 0;
-
-    if (totalCredits <= 0) {
-      return NextResponse.json(
-        {
-          error: "Insufficient image credits",
-          creditType: "image",
-        },
-        { status: 402 }
-      );
-    }
-
-    // Convert photo to base64
+    // Convert photo to base64 data URL
     const photoBuffer = Buffer.from(await photoFile.arrayBuffer());
-    const photoBase64 = `data:${photoFile.type};base64,${photoBuffer.toString("base64")}`;
+    const imageUrl = `data:${photoFile.type};base64,${photoBuffer.toString("base64")}`;
 
-    // Attempt to decrement credit atomically
-    const decrementResult = await decrementCredit(user.id, presetId, styleId);
-
-    if (!decrementResult.success) {
+    // Get Supabase URL from environment
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    if (!supabaseUrl) {
+      console.error("NEXT_PUBLIC_SUPABASE_URL not configured");
       return NextResponse.json(
-        {
-          error: decrementResult.error || "Insufficient image credits",
-          creditType: "image",
-        },
-        { status: 402 }
+        { error: "Server configuration error" },
+        { status: 500 }
       );
     }
 
-    // Load reference images if needed
-    let referenceImages: string[] | undefined;
-    if (preset.requiresRefs) {
-      try {
-        // Load different reference images based on preset
-        if (presetId === "ilacSceneMatch") {
-          const ref1Path = path.join(process.cwd(), "public/refs/ilac1.jpg");
-          const ref2Path = path.join(process.cwd(), "public/refs/ilac2.jpg");
-          const ref3Path = path.join(process.cwd(), "public/refs/ilac3.jpg");
-          const ref4Path = path.join(process.cwd(), "public/refs/ilac4.jpg");
-
-          const ref1Buffer = await readFile(ref1Path);
-          const ref2Buffer = await readFile(ref2Path);
-          const ref3Buffer = await readFile(ref3Path);
-          const ref4Buffer = await readFile(ref4Path);
-
-          referenceImages = [
-            `data:image/jpeg;base64,${ref1Buffer.toString("base64")}`,
-            `data:image/jpeg;base64,${ref2Buffer.toString("base64")}`,
-            `data:image/jpeg;base64,${ref3Buffer.toString("base64")}`,
-            `data:image/jpeg;base64,${ref4Buffer.toString("base64")}`,
-          ];
-        } else {
-          // Default to "With Us" preset references
-          const ref1Path = path.join(
-            process.cwd(),
-            "public/refs/withus_guyA.jpg"
-          );
-          const ref2Path = path.join(
-            process.cwd(),
-            "public/refs/withus_guyB.jpg"
-          );
-
-          const ref1Buffer = await readFile(ref1Path);
-          const ref2Buffer = await readFile(ref2Path);
-
-          referenceImages = [
-            `data:image/jpeg;base64,${ref1Buffer.toString("base64")}`,
-            `data:image/jpeg;base64,${ref2Buffer.toString("base64")}`,
-          ];
-        }
-      } catch (error) {
-        console.error("Error loading reference images:", error);
-        // Continue without refs - the generation may still work
-      }
-    }
-
-    // Get styled prompts based on user preference
-    const styledPrompts = getPresetPromptsWithStyle(
-      presetId,
-      styleId as any
-    );
-
-    // Image generation: use all prompts, generates 4 images
-    const result = await generateImages({
-      baseImage: photoBase64,
-      referenceImages,
-      prompts: styledPrompts,
-      quality: "high",
+    // Step 1: Reserve credit and create generation session
+    const reserveResponse = await fetch(`${supabaseUrl}/functions/v1/reserve-credit`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        imageUrl,
+        presetId,
+        styleId,
+        imageCount: 4,
+      }),
     });
 
-    // Watermark all generated images
-    // Free users: watermark + downscale to 768px
-    // Paid users: watermark only, full size
-    const watermarkedImages = await Promise.all(
-      result.images.map((img) =>
-        watermarkAndDownscale(img, isFreeGeneration)
-      )
-    );
+    const reserveData = await reserveResponse.json();
 
-    // Upload images to Supabase Storage
-    const batchId = generateBatchId();
-    const uploadResult = await uploadImageBatch(watermarkedImages, user.id, false);
+    if (!reserveResponse.ok) {
+      console.error("Reserve credit error:", reserveData);
 
-    if (!uploadResult.success || uploadResult.urls.length === 0) {
-      console.error("Failed to upload images to storage:", uploadResult.errors);
-      // Return base64 as fallback if storage upload fails
-      return NextResponse.json({
-        success: true,
-        images: watermarkedImages,
-        metadata: result.metadata,
-        isFreeGeneration,
-        type: "image",
-        storedToGallery: false,
-      });
+      if (reserveData.code === "INSUFFICIENT_CREDITS") {
+        return NextResponse.json(
+          {
+            error: reserveData.error || "Insufficient credits",
+            creditType: "image",
+          },
+          { status: 402 }
+        );
+      }
+
+      return NextResponse.json(
+        { error: reserveData.error || "Failed to reserve credit" },
+        { status: reserveResponse.status }
+      );
     }
 
-    // Save image records to database
-    const adminSupabase = createAdminClient();
-    const imageRecords = uploadResult.urls.map((url, index) => ({
-      user_id: user.id,
-      generation_batch_id: uploadResult.batchId,
-      image_url: url,
-      storage_path: uploadResult.paths[index],
-      preset_id: presetId,
-      style_id: styleId,
-      image_index: index,
-      is_public: false,
-      is_free_generation: isFreeGeneration,
-    }));
+    const { sessionId, isFreeGeneration, remainingFree, remainingPaid } = reserveData;
 
-    const { error: insertError } = await adminSupabase
-      .from("images")
-      .insert(imageRecords);
+    // Step 2: Generate all 4 images in parallel
+    const generatePromises = [0, 1, 2, 3].map(async (variationIndex) => {
+      try {
+        const response = await fetch(`${supabaseUrl}/functions/v1/generate-single`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${session.access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            sessionId,
+            variationIndex,
+          }),
+        });
 
-    if (insertError) {
-      console.error("Failed to save image records:", insertError);
-      // Images are still in storage, but not tracked in DB
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error(`Generate-single error for variation ${variationIndex}:`, errorData);
+          return null;
+        }
+
+        const result: GenerateSingleResult = await response.json();
+        return result;
+      } catch (error) {
+        console.error(`Generate-single exception for variation ${variationIndex}:`, error);
+        return null;
+      }
+    });
+
+    const results = await Promise.all(generatePromises);
+
+    // Collect successful image URLs
+    const imageUrls = results
+      .filter((r): r is GenerateSingleResult => r !== null && r.success)
+      .sort((a, b) => a.variationIndex - b.variationIndex)
+      .map((r) => r.imageUrl);
+
+    if (imageUrls.length === 0) {
+      return NextResponse.json(
+        { error: "All image generations failed" },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
       success: true,
-      images: uploadResult.urls, // Return storage URLs instead of base64
-      metadata: result.metadata,
-      isFreeGeneration,
+      images: imageUrls,
       type: "image",
-      batchId: uploadResult.batchId,
-      storedToGallery: !insertError,
+      isFreeGeneration,
+      remainingFree,
+      remainingPaid,
+      generatedCount: imageUrls.length,
     });
   } catch (error) {
     console.error("Error generating images:", error);

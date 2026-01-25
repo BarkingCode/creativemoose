@@ -291,7 +291,7 @@ export function ImagePreviewScreen({
 
           {/* Delete Confirmation Dialog */}
           <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-            <AlertDialogContent className="bg-[#1a1517] border-white/10 text-white">
+            <AlertDialogContent className="bg-neutral-900 border-white/10 text-white">
               <AlertDialogHeader>
                 <AlertDialogTitle>Delete Image</AlertDialogTitle>
                 <AlertDialogDescription className="text-white/60">

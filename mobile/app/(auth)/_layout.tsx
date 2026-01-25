@@ -13,7 +13,10 @@ export default function AuthLayout() {
       screenOptions={{
         headerShown: false,
         contentStyle: { backgroundColor: "#0f0a0a" },
-        animation: "slide_from_bottom",
+        // Fade animation for switching between sign-in/sign-up (no slide)
+        animation: "fade",
+        // Disable swipe gesture since these screens replace each other
+        gestureEnabled: false,
       }}
     >
       <Stack.Screen name="sign-in" />

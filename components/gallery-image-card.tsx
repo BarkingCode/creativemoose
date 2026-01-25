@@ -51,7 +51,7 @@ export function GalleryImageCard({
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.2 }}
-      className="relative rounded-2xl overflow-hidden bg-[#1a1517] border border-white/5 cursor-pointer group"
+      className="relative rounded-2xl overflow-hidden bg-neutral-900 border border-white/5 cursor-pointer group"
       onClick={onClick}
     >
       {/* Image */}
@@ -109,7 +109,7 @@ export function GalleryImageCard({
  */
 export function GalleryImageCardSkeleton() {
   return (
-    <div className="rounded-2xl overflow-hidden bg-[#1a1517] border border-white/5">
+    <div className="rounded-2xl overflow-hidden bg-neutral-900 border border-white/5">
       <Skeleton className="aspect-[3/4] bg-white/5" />
     </div>
   );

@@ -68,7 +68,7 @@ export function FeedImageCard({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="bg-[#1a1517] rounded-2xl overflow-hidden border border-white/5"
+      className="bg-neutral-900 rounded-2xl overflow-hidden border border-white/5"
     >
       {/* Image Container */}
       <div
@@ -135,7 +135,7 @@ export function FeedImageCard({
  */
 export function FeedImageCardSkeleton() {
   return (
-    <div className="bg-[#1a1517] rounded-2xl overflow-hidden border border-white/5">
+    <div className="bg-neutral-900 rounded-2xl overflow-hidden border border-white/5">
       <Skeleton className="aspect-[3/4] bg-white/5" />
       <div className="p-3 flex items-center gap-3">
         <Skeleton className="w-8 h-8 rounded-full bg-white/10" />

@@ -14,12 +14,11 @@ import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PurchasesPackage } from "react-native-purchases";
 import { useRevenueCat } from "../../contexts/RevenueCatContext";
+import { HeaderButton } from "../../components/HeaderButton";
 
 // Fallback packages for when RevenueCat offerings aren't available
 const FALLBACK_PACKAGES = [
-  { id: "photoapp_5_credits", credits: 5, price: "$2.99", popular: false },
-  { id: "photoapp_10_credits", credits: 10, price: "$4.99", popular: true },
-  { id: "photoapp_25_credits", credits: 25, price: "$9.99", popular: false },
+  { id: "photoapp_5_credits", credits: 5, price: "$1.99", popular: true },
 ];
 
 // Map product IDs to credit amounts
@@ -46,12 +45,11 @@ export default function PurchaseScreen() {
   // Set default selection when offerings load
   useEffect(() => {
     if (offerings?.availablePackages?.length) {
-      // Select the middle package (usually "popular") by default
-      const middleIndex = Math.floor(offerings.availablePackages.length / 2);
-      setSelectedPackageId(offerings.availablePackages[middleIndex]?.identifier || null);
+      // Select the first package by default
+      setSelectedPackageId(offerings.availablePackages[0]?.identifier || null);
     } else {
       // Use fallback default
-      setSelectedPackageId("photoapp_10_credits");
+      setSelectedPackageId(FALLBACK_PACKAGES[0].id);
     }
   }, [offerings]);
 
@@ -91,12 +89,10 @@ export default function PurchaseScreen() {
                 Purchase credits to generate more photos
               </Text>
             </View>
-            <Pressable
+            <HeaderButton
+              variant="close"
               onPress={() => router.back()}
-              className="w-10 h-10 bg-card rounded-full items-center justify-center"
-            >
-              <Text className="text-white text-xl">×</Text>
-            </Pressable>
+            />
           </View>
 
           {/* Loading State */}

@@ -8,7 +8,9 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
   email TEXT,
   full_name TEXT,
+  display_name TEXT,
   avatar_url TEXT,
+  bio TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -248,6 +250,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- Create these buckets:
 -- 1. "uploads" - For temporary user photo uploads (private)
 -- 2. "generations" - For generated images (private with signed URLs)
+-- 3. "avatars" - For user profile avatars (public)
 
 -- Storage policies (run after creating buckets):
 /*
@@ -284,6 +287,32 @@ USING (
 CREATE POLICY "Service role can insert generations"
 ON storage.objects FOR INSERT
 WITH CHECK (bucket_id = 'generations');
+
+-- For 'avatars' bucket (public):
+CREATE POLICY "Users can upload their own avatars"
+ON storage.objects FOR INSERT
+WITH CHECK (
+  bucket_id = 'avatars' AND
+  auth.uid()::text = (storage.foldername(name))[1]
+);
+
+CREATE POLICY "Anyone can view avatars"
+ON storage.objects FOR SELECT
+USING (bucket_id = 'avatars');
+
+CREATE POLICY "Users can update their own avatars"
+ON storage.objects FOR UPDATE
+USING (
+  bucket_id = 'avatars' AND
+  auth.uid()::text = (storage.foldername(name))[1]
+);
+
+CREATE POLICY "Users can delete their own avatars"
+ON storage.objects FOR DELETE
+USING (
+  bucket_id = 'avatars' AND
+  auth.uid()::text = (storage.foldername(name))[1]
+);
 */
 
 -- ============================================
