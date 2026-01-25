@@ -1,13 +1,13 @@
 /**
  * Profile Screen
  *
- * Displays and allows editing of user profile information.
+ * Displays user profile information with an edit sheet.
  * Features:
- * - Editable display name
- * - Tappable avatar for photo upload
+ * - Read-only profile display
+ * - Edit button opens bottom sheet for editing
+ * - Editable first name, last name, and avatar in sheet
  * - Credits balance display
- * - Sign out functionality
- * - Account deletion
+ * - Sign out and account deletion
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -19,6 +19,7 @@ import {
   ActivityIndicator,
   ScrollView,
   TextInput,
+  Modal,
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
@@ -38,16 +39,11 @@ import {
   Trash2,
   UserPlus,
   Camera,
-  Check,
+  X,
+  Pencil,
 } from "lucide-react-native";
 import { HeaderButton } from "../../components/HeaderButton";
 import InviteFriendModal from "../../components/InviteFriendModal";
-
-interface ProfileData {
-  display_name: string | null;
-  avatar_url: string | null;
-  bio: string | null;
-}
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -58,24 +54,22 @@ export default function ProfileScreen() {
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showEditSheet, setShowEditSheet] = useState(false);
 
-  // Profile editing state
+  // Profile state
   const [isLoadingProfile, setIsLoadingProfile] = useState(true);
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+
+  // Edit sheet state (temporary values while editing)
+  const [editFirstName, setEditFirstName] = useState("");
+  const [editLastName, setEditLastName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
-  const [displayName, setDisplayName] = useState("");
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [hasChanges, setHasChanges] = useState(false);
-
-  // Original values for change detection
-  const [originalDisplayName, setOriginalDisplayName] = useState("");
 
   // Derived values
   const userEmail = user?.email || "";
-  const fallbackName =
-    user?.user_metadata?.full_name ||
-    user?.user_metadata?.name ||
-    userEmail.split("@")[0];
   const totalCredits =
     (credits?.free_credits || 0) + (credits?.image_credits || 0);
 
@@ -87,7 +81,7 @@ export default function ProfileScreen() {
     try {
       const { data, error } = await supabase
         .from("profiles")
-        .select("display_name, avatar_url, bio")
+        .select("first_name, last_name, avatar_url")
         .eq("id", user.id)
         .single();
 
@@ -96,9 +90,8 @@ export default function ProfileScreen() {
       }
 
       if (data) {
-        const name = data.display_name || "";
-        setDisplayName(name);
-        setOriginalDisplayName(name);
+        setFirstName(data.first_name || "");
+        setLastName(data.last_name || "");
         setAvatarUrl(data.avatar_url);
       }
     } catch (err) {
@@ -114,21 +107,24 @@ export default function ProfileScreen() {
     }, [fetchProfile])
   );
 
-  // Track changes
-  useEffect(() => {
-    setHasChanges(displayName !== originalDisplayName);
-  }, [displayName, originalDisplayName]);
+  // Open edit sheet with current values
+  const openEditSheet = () => {
+    setEditFirstName(firstName);
+    setEditLastName(lastName);
+    setShowEditSheet(true);
+  };
 
   // Save profile changes
   const handleSaveProfile = async () => {
-    if (!user?.id || !hasChanges) return;
+    if (!user?.id) return;
 
     setIsSaving(true);
     try {
       const { error } = await supabase
         .from("profiles")
         .update({
-          display_name: displayName.trim() || null,
+          first_name: editFirstName.trim() || null,
+          last_name: editLastName.trim() || null,
         })
         .eq("id", user.id);
 
@@ -136,9 +132,10 @@ export default function ProfileScreen() {
         throw new Error(error.message);
       }
 
-      setOriginalDisplayName(displayName);
-      setHasChanges(false);
-      Alert.alert("Success", "Profile updated successfully!");
+      // Update local state
+      setFirstName(editFirstName.trim());
+      setLastName(editLastName.trim());
+      setShowEditSheet(false);
     } catch (err: any) {
       console.error("[Profile] Save error:", err);
       Alert.alert("Error", err.message || "Failed to save profile.");
@@ -158,11 +155,13 @@ export default function ProfileScreen() {
       return;
     }
 
+    // Use optimized settings for faster loading
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.8,
+      quality: 0.7,
+      exif: false,
     });
 
     if (result.canceled || !result.assets[0]) return;
@@ -207,7 +206,6 @@ export default function ProfileScreen() {
       }
 
       setAvatarUrl(newAvatarUrl);
-      Alert.alert("Success", "Avatar updated successfully!");
     } catch (err: any) {
       console.error("[Profile] Avatar upload error:", err);
       Alert.alert("Error", err.message || "Failed to upload avatar.");
@@ -259,8 +257,14 @@ export default function ProfileScreen() {
     );
   };
 
-  // Get the display name to show (custom or fallback)
-  const displayedName = displayName || fallbackName;
+  // Get the display name to show
+  const displayedName =
+    firstName || lastName
+      ? `${firstName} ${lastName}`.trim()
+      : user?.user_metadata?.full_name ||
+        user?.user_metadata?.name ||
+        userEmail.split("@")[0];
+
   // For avatar, prefer custom avatar, then OAuth avatar
   const effectiveAvatarUrl =
     avatarUrl ||
@@ -269,197 +273,258 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-background" edges={["top"]}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        className="flex-1"
-      >
-        <ScrollView
-          className="flex-1"
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-          {/* Header */}
-          <View className="flex-row items-center justify-between px-4 py-3">
-            <View className="flex-row items-center">
-              <HeaderButton variant="back" onPress={() => router.back()} />
-              <Text className="text-white text-lg font-semibold ml-4">
-                Profile
-              </Text>
-            </View>
-            {hasChanges && (
-              <Pressable
-                onPress={handleSaveProfile}
-                disabled={isSaving}
-                className="bg-emerald-500 px-4 py-2 rounded-xl"
-              >
-                {isSaving ? (
-                  <ActivityIndicator color="white" size="small" />
-                ) : (
-                  <View className="flex-row items-center gap-1">
-                    <Check color="white" size={16} />
-                    <Text className="text-white font-semibold text-sm">
-                      Save
-                    </Text>
-                  </View>
-                )}
-              </Pressable>
-            )}
-          </View>
+      <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
+        {/* Header */}
+        <View className="flex-row items-center px-4 py-3">
+          <HeaderButton variant="back" onPress={() => router.back()} />
+          <Text className="text-white text-lg font-semibold ml-4">Profile</Text>
+        </View>
 
-          {/* Avatar Section */}
-          <View className="items-center py-8">
-            <Pressable onPress={handleAvatarPress} disabled={isUploadingAvatar}>
-              <View className="relative">
-                <Avatar
-                  url={effectiveAvatarUrl}
-                  name={displayedName}
-                  size="xlarge"
-                />
-                {isUploadingAvatar ? (
-                  <View className="absolute inset-0 bg-black/50 rounded-full items-center justify-center">
-                    <ActivityIndicator color="white" size="small" />
-                  </View>
-                ) : (
-                  <View className="absolute bottom-0 right-0 w-8 h-8 bg-white rounded-full items-center justify-center border-2 border-background">
-                    <Camera color="#0f0a0a" size={16} />
-                  </View>
-                )}
-              </View>
-            </Pressable>
+        {/* Profile Card */}
+        <View className="items-center py-8">
+          <Avatar
+            url={effectiveAvatarUrl}
+            name={displayedName}
+            size="xlarge"
+          />
+          <Text className="text-white text-xl font-semibold mt-4">
+            {displayedName}
+          </Text>
+          <Text className="text-white/50 text-sm mt-1">{userEmail}</Text>
 
-            {/* Display Name Input */}
-            <View className="mt-6 w-full px-8">
-              <TextInput
-                value={displayName}
-                onChangeText={setDisplayName}
-                placeholder={fallbackName || "Enter your name"}
-                placeholderTextColor="rgba(255,255,255,0.3)"
-                className="text-white text-xl font-semibold text-center py-2 border-b border-white/10"
-                maxLength={50}
-              />
-              <Text className="text-white/40 text-xs text-center mt-2">
-                Tap to edit your display name
-              </Text>
-            </View>
-
-            <Text className="text-white/50 text-sm mt-4">{userEmail}</Text>
-          </View>
-
-          {/* Stats Card */}
-          <View className="mx-4 bg-neutral-900 rounded-2xl p-5 mb-6">
-            <View className="flex-row items-center justify-between">
-              <View className="flex-row items-center gap-3">
-                <View className="w-10 h-10 rounded-full bg-emerald-500/20 items-center justify-center">
-                  <View pointerEvents="none">
-                    <CreditCard color="#10b981" size={20} />
-                  </View>
-                </View>
-                <View>
-                  <Text className="text-white/60 text-sm">
-                    Available Credits
-                  </Text>
-                  <Text className="text-white text-xl font-bold">
-                    {isLoadingCredits ? "..." : totalCredits}
-                  </Text>
-                </View>
-              </View>
-              <Pressable
-                onPress={() => router.push("/(app)/purchase")}
-                className="bg-white px-4 py-2 rounded-xl"
-              >
-                <Text className="text-background font-semibold text-sm">
-                  Get More
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-
-          {/* Menu Items - Email only (Account Type removed) */}
-          <View className="mx-4 bg-neutral-900 rounded-2xl overflow-hidden mb-6">
-            <View className="flex-row items-center px-4 py-4">
-              <View className="w-10 h-10 rounded-full bg-white/5 items-center justify-center">
-                <View pointerEvents="none">
-                  <Mail color="rgba(255,255,255,0.5)" size={18} />
-                </View>
-              </View>
-              <View className="flex-1 ml-3">
-                <Text className="text-white/50 text-xs">Email</Text>
-                <Text className="text-white text-sm">{userEmail}</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Invite Friend Button */}
+          {/* Edit Profile Button */}
           <Pressable
-            onPress={() => setShowInviteModal(true)}
-            className="mx-4 mb-6 bg-neutral-900 rounded-2xl overflow-hidden"
+            onPress={openEditSheet}
+            className="flex-row items-center gap-2 mt-4 bg-white/10 px-4 py-2 rounded-full"
           >
-            <View className="flex-row items-center px-4 py-4">
+            <Pencil color="white" size={16} />
+            <Text className="text-white text-sm font-medium">Edit Profile</Text>
+          </Pressable>
+        </View>
+
+        {/* Stats Card */}
+        <View className="mx-4 bg-neutral-900 rounded-2xl p-5 mb-6">
+          <View className="flex-row items-center justify-between">
+            <View className="flex-row items-center gap-3">
               <View className="w-10 h-10 rounded-full bg-emerald-500/20 items-center justify-center">
                 <View pointerEvents="none">
-                  <UserPlus color="#10b981" size={18} />
+                  <CreditCard color="#10b981" size={20} />
                 </View>
               </View>
-              <View className="flex-1 ml-3">
-                <Text className="text-white font-medium">Invite a Friend</Text>
-                <Text className="text-white/50 text-xs">
-                  Share the app with someone
+              <View>
+                <Text className="text-white/60 text-sm">Available Credits</Text>
+                <Text className="text-white text-xl font-bold">
+                  {isLoadingCredits ? "..." : totalCredits}
                 </Text>
               </View>
+            </View>
+            <Pressable
+              onPress={() => router.push("/(app)/purchase")}
+              className="bg-white px-4 py-2 rounded-xl"
+            >
+              <Text className="text-background font-semibold text-sm">
+                Get More
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+
+        {/* Menu Items */}
+        <View className="mx-4 bg-neutral-900 rounded-2xl overflow-hidden mb-6">
+          {/* Email */}
+          <View className="flex-row items-center px-4 py-4">
+            <View className="w-10 h-10 rounded-full bg-white/5 items-center justify-center">
               <View pointerEvents="none">
-                <ChevronRight color="rgba(255,255,255,0.3)" size={20} />
+                <Mail color="rgba(255,255,255,0.5)" size={18} />
               </View>
             </View>
+            <View className="flex-1 ml-3">
+              <Text className="text-white/50 text-xs">Email</Text>
+              <Text className="text-white text-sm">{userEmail}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Invite Friend Button */}
+        <Pressable
+          onPress={() => setShowInviteModal(true)}
+          className="mx-4 mb-6 bg-neutral-900 rounded-2xl overflow-hidden"
+        >
+          <View className="flex-row items-center px-4 py-4">
+            <View className="w-10 h-10 rounded-full bg-emerald-500/20 items-center justify-center">
+              <View pointerEvents="none">
+                <UserPlus color="#10b981" size={18} />
+              </View>
+            </View>
+            <View className="flex-1 ml-3">
+              <Text className="text-white font-medium">Invite a Friend</Text>
+              <Text className="text-white/50 text-xs">
+                Share the app with someone
+              </Text>
+            </View>
+            <View pointerEvents="none">
+              <ChevronRight color="rgba(255,255,255,0.3)" size={20} />
+            </View>
+          </View>
+        </Pressable>
+
+        {/* Sign Out Button */}
+        <View className="mx-4 mb-4">
+          <Pressable
+            onPress={handleSignOut}
+            disabled={isSigningOut || isDeleting}
+            className="flex-row items-center justify-center gap-2 bg-red-500/10 py-4 rounded-2xl border border-red-500/20"
+          >
+            {isSigningOut ? (
+              <ActivityIndicator color="#ef4444" size="small" />
+            ) : (
+              <>
+                <View pointerEvents="none">
+                  <LogOut color="#ef4444" size={20} />
+                </View>
+                <Text className="text-red-500 font-semibold text-base">
+                  Sign Out
+                </Text>
+              </>
+            )}
           </Pressable>
+        </View>
 
-          {/* Sign Out Button */}
-          <View className="mx-4 mb-4">
-            <Pressable
-              onPress={handleSignOut}
-              disabled={isSigningOut || isDeleting}
-              className="flex-row items-center justify-center gap-2 bg-red-500/10 py-4 rounded-2xl border border-red-500/20"
-            >
-              {isSigningOut ? (
-                <ActivityIndicator color="#ef4444" size="small" />
-              ) : (
-                <>
-                  <View pointerEvents="none">
-                    <LogOut color="#ef4444" size={20} />
-                  </View>
-                  <Text className="text-red-500 font-semibold text-base">
-                    Sign Out
-                  </Text>
-                </>
-              )}
-            </Pressable>
-          </View>
+        {/* Delete Account Button */}
+        <View className="mx-4 mb-8">
+          <Pressable
+            onPress={handleDeleteAccount}
+            disabled={isDeleting || isSigningOut}
+            className="flex-row items-center justify-center gap-2 bg-red-900/30 py-4 rounded-2xl border border-red-900/50"
+          >
+            {isDeleting ? (
+              <ActivityIndicator color="#dc2626" size="small" />
+            ) : (
+              <>
+                <View pointerEvents="none">
+                  <Trash2 color="#dc2626" size={20} />
+                </View>
+                <Text className="text-red-600 font-semibold text-base">
+                  Delete Account
+                </Text>
+              </>
+            )}
+          </Pressable>
+          <Text className="text-white/40 text-xs text-center mt-2">
+            This permanently deletes all your data
+          </Text>
+        </View>
+      </ScrollView>
 
-          {/* Delete Account Button */}
-          <View className="mx-4 mb-8">
-            <Pressable
-              onPress={handleDeleteAccount}
-              disabled={isDeleting || isSigningOut}
-              className="flex-row items-center justify-center gap-2 bg-red-900/30 py-4 rounded-2xl border border-red-900/50"
-            >
-              {isDeleting ? (
-                <ActivityIndicator color="#dc2626" size="small" />
-              ) : (
-                <>
-                  <View pointerEvents="none">
-                    <Trash2 color="#dc2626" size={20} />
+      {/* Edit Profile Sheet */}
+      <Modal
+        visible={showEditSheet}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowEditSheet(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          className="flex-1"
+        >
+          <Pressable
+            className="flex-1 bg-black/50"
+            onPress={() => setShowEditSheet(false)}
+          />
+          <View className="bg-neutral-900 rounded-t-3xl">
+            <SafeAreaView edges={["bottom"]}>
+              {/* Sheet Header */}
+              <View className="flex-row items-center justify-between px-4 py-4 border-b border-white/10">
+                <Pressable
+                  onPress={() => setShowEditSheet(false)}
+                  className="w-10 h-10 items-center justify-center"
+                >
+                  <X color="white" size={24} />
+                </Pressable>
+                <Text className="text-white text-lg font-semibold">
+                  Edit Profile
+                </Text>
+                <Pressable
+                  onPress={handleSaveProfile}
+                  disabled={isSaving}
+                  className="bg-white px-4 py-2 rounded-lg"
+                >
+                  {isSaving ? (
+                    <ActivityIndicator color="#0f0a0a" size="small" />
+                  ) : (
+                    <Text className="text-background font-semibold text-sm">
+                      Save
+                    </Text>
+                  )}
+                </Pressable>
+              </View>
+
+              {/* Avatar Edit */}
+              <View className="items-center py-6">
+                <Pressable
+                  onPress={handleAvatarPress}
+                  disabled={isUploadingAvatar}
+                >
+                  <View className="relative">
+                    <Avatar
+                      url={effectiveAvatarUrl}
+                      name={displayedName}
+                      size="xlarge"
+                    />
+                    {isUploadingAvatar ? (
+                      <View className="absolute inset-0 bg-black/50 rounded-full items-center justify-center">
+                        <ActivityIndicator color="white" size="small" />
+                      </View>
+                    ) : (
+                      <View className="absolute bottom-0 right-0 w-8 h-8 bg-white rounded-full items-center justify-center border-2 border-neutral-900">
+                        <Camera color="#0f0a0a" size={16} />
+                      </View>
+                    )}
                   </View>
-                  <Text className="text-red-600 font-semibold text-base">
-                    Delete Account
+                </Pressable>
+                <Text className="text-white/40 text-xs mt-3">
+                  Tap to change photo
+                </Text>
+              </View>
+
+              {/* Form Fields */}
+              <View className="px-4 pb-6">
+                {/* First Name */}
+                <View className="mb-4">
+                  <Text className="text-white/50 text-xs mb-2 ml-1">
+                    First Name
                   </Text>
-                </>
-              )}
-            </Pressable>
-            <Text className="text-white/40 text-xs text-center mt-2">
-              This permanently deletes all your data
-            </Text>
+                  <TextInput
+                    value={editFirstName}
+                    onChangeText={setEditFirstName}
+                    placeholder="Enter first name"
+                    placeholderTextColor="rgba(255,255,255,0.3)"
+                    className="bg-white/10 text-white text-base px-4 py-3 rounded-xl"
+                    maxLength={50}
+                    autoCapitalize="words"
+                  />
+                </View>
+
+                {/* Last Name */}
+                <View className="mb-4">
+                  <Text className="text-white/50 text-xs mb-2 ml-1">
+                    Last Name
+                  </Text>
+                  <TextInput
+                    value={editLastName}
+                    onChangeText={setEditLastName}
+                    placeholder="Enter last name"
+                    placeholderTextColor="rgba(255,255,255,0.3)"
+                    className="bg-white/10 text-white text-base px-4 py-3 rounded-xl"
+                    maxLength={50}
+                    autoCapitalize="words"
+                  />
+                </View>
+              </View>
+            </SafeAreaView>
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {/* Invite Friend Modal */}
       <InviteFriendModal

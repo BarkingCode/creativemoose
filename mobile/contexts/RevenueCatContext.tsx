@@ -6,9 +6,15 @@
  * - Manages offerings and packages
  * - Handles purchase flow with Supabase credit sync
  * - Provides hooks for purchase state management
+ *
+ * iOS 26 Beta Compatibility:
+ * - RevenueCat SDK may crash on iOS 26 beta due to URLSession bug
+ * - See: https://community.revenuecat.com/sdks-51/exc-breakpoint-crash-xcode-26-ios-26-at-purchases-configure-6506
+ * - This context handles SDK initialization failure gracefully
+ * - Use `isAvailable` to check if purchases are available before showing purchase UI
  */
 
-import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode, useRef } from 'react';
 import { Platform, Alert } from 'react-native';
 import Purchases, {
   PurchasesOffering,
@@ -20,11 +26,14 @@ import Purchases, {
 import { useAuth } from './AuthContext';
 import { supabase, Credits } from '../lib/supabase';
 
+// Track if RevenueCat SDK is available (may fail on iOS 26 beta)
+let revenueCatAvailable = true;
+
 // Product ID to credits mapping
 const PRODUCT_CREDITS: Record<string, number> = {
-  'photoapp_5_credits': 5,
-  'photoapp_10_credits': 10,
-  'photoapp_25_credits': 25,
+  'five_token_ios': 5,
+  'ten_token_ios': 10,
+  'twentyfive_token_ios': 25,
 };
 
 interface RevenueCatContextType {
@@ -35,6 +44,7 @@ interface RevenueCatContextType {
   error: string | null;
   credits: Credits | null;
   isLoadingCredits: boolean;
+  isAvailable: boolean; // Whether RevenueCat SDK is available (may be false on iOS 26 beta)
   purchasePackage: (pkg: PurchasesPackage) => Promise<boolean>;
   restorePurchases: () => Promise<void>;
   refreshOfferings: () => Promise<void>;
@@ -57,48 +67,82 @@ export function RevenueCatProvider({ children }: RevenueCatProviderProps) {
   const [isConfigured, setIsConfigured] = useState(false);
   const [credits, setCredits] = useState<Credits | null>(null);
   const [isLoadingCredits, setIsLoadingCredits] = useState(false);
+  const [sdkAvailable, setSdkAvailable] = useState(true); // Tracks if SDK initialized successfully
 
-  // Initialize RevenueCat SDK
+  // Track initialization attempts to prevent infinite retries
+  const initAttempted = useRef(false);
+
+  // Initialize RevenueCat SDK with defensive error handling for iOS 26 beta compatibility
   useEffect(() => {
+    // Prevent multiple initialization attempts
+    if (initAttempted.current) return;
+    initAttempted.current = true;
+
     const initializeRevenueCat = async () => {
+      const apiKey = Platform.OS === 'ios'
+        ? process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY
+        : process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY;
+
+      if (!apiKey) {
+        console.warn('[RevenueCat] API key not configured');
+        setIsLoading(false);
+        return;
+      }
+
       try {
         // Set log level for debugging (remove in production)
         Purchases.setLogLevel(LOG_LEVEL.DEBUG);
 
-        const apiKey = Platform.OS === 'ios'
-          ? process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY
-          : process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY;
+        // Configure SDK - this can crash on iOS 26 beta due to URLSession bug
+        // See: https://community.revenuecat.com/sdks-51/exc-breakpoint-crash-xcode-26-ios-26-at-purchases-configure-6506
+        console.log('[RevenueCat] Configuring SDK...');
+        await Purchases.configure({ apiKey });
+        console.log('[RevenueCat] SDK configured successfully');
 
-        if (!apiKey) {
-          console.warn('RevenueCat API key not configured');
-          setIsLoading(false);
-          return;
+        setIsConfigured(true);
+        revenueCatAvailable = true;
+        setSdkAvailable(true);
+
+        // Fetch initial offerings (also wrapped for safety)
+        try {
+          await fetchOfferings();
+        } catch (offeringsErr) {
+          console.warn('[RevenueCat] Failed to fetch offerings:', offeringsErr);
+          // Non-fatal - continue without offerings
         }
 
-        await Purchases.configure({ apiKey });
-        setIsConfigured(true);
-
-        // Fetch initial offerings
-        await fetchOfferings();
-
         // Fetch customer info
-        const info = await Purchases.getCustomerInfo();
-        setCustomerInfo(info);
-      } catch (err) {
-        console.error('Failed to initialize RevenueCat:', err);
-        setError('Failed to initialize purchases');
+        try {
+          const info = await Purchases.getCustomerInfo();
+          setCustomerInfo(info);
+        } catch (infoErr) {
+          console.warn('[RevenueCat] Failed to get customer info:', infoErr);
+          // Non-fatal - continue without customer info
+        }
+      } catch (err: any) {
+        // Graceful degradation - app still works without purchases
+        console.error('[RevenueCat] Failed to initialize SDK:', err);
+        console.warn('[RevenueCat] Purchases will be unavailable. This may be due to iOS 26 beta incompatibility.');
+        revenueCatAvailable = false;
+        setSdkAvailable(false);
+        setError('Purchases temporarily unavailable');
+        // Don't crash the app - just disable purchase functionality
       } finally {
         setIsLoading(false);
       }
     };
 
-    initializeRevenueCat();
+    // Delay initialization slightly to allow React Native bridge to fully initialize
+    // This can help avoid race conditions on app startup
+    const timer = setTimeout(initializeRevenueCat, 100);
+    return () => clearTimeout(timer);
   }, []);
 
   // Update RevenueCat user ID when auth state changes
   useEffect(() => {
     const updateRevenueCatUser = async () => {
-      if (!isConfigured) return;
+      // Skip if SDK not available or not configured
+      if (!revenueCatAvailable || !isConfigured) return;
 
       try {
         if (user?.id) {
@@ -115,7 +159,8 @@ export function RevenueCatProvider({ children }: RevenueCatProviderProps) {
           }
         }
       } catch (err) {
-        console.error('Failed to update RevenueCat user:', err);
+        console.warn('[RevenueCat] Failed to update user:', err);
+        // Non-fatal - don't crash if this fails
       }
     };
 
@@ -124,34 +169,71 @@ export function RevenueCatProvider({ children }: RevenueCatProviderProps) {
 
   // Listen for customer info updates
   useEffect(() => {
-    if (!isConfigured) return;
+    // Skip if SDK not available or not configured
+    if (!revenueCatAvailable || !isConfigured) return;
 
     const updateListener = (info: CustomerInfo) => {
       setCustomerInfo(info);
     };
 
-    Purchases.addCustomerInfoUpdateListener(updateListener);
+    try {
+      Purchases.addCustomerInfoUpdateListener(updateListener);
+    } catch (err) {
+      console.warn('[RevenueCat] Failed to add listener:', err);
+      return;
+    }
 
     return () => {
-      Purchases.removeCustomerInfoUpdateListener(updateListener);
+      try {
+        Purchases.removeCustomerInfoUpdateListener(updateListener);
+      } catch (err) {
+        // Ignore cleanup errors
+      }
     };
   }, [isConfigured]);
 
   const fetchOfferings = async () => {
+    // Skip if SDK not available
+    if (!revenueCatAvailable) return;
+
     try {
-      const offerings = await Purchases.getOfferings();
-      setOfferings(offerings.current);
+      const allOfferings = await Purchases.getOfferings();
+
+      // Debug logging for TestFlight troubleshooting
+      console.log('[RevenueCat] All offerings:', JSON.stringify({
+        current: allOfferings.current?.identifier,
+        all: Object.keys(allOfferings.all || {}),
+      }));
+      console.log('[RevenueCat] Current offering identifier:', allOfferings.current?.identifier);
+      console.log('[RevenueCat] Available packages count:', allOfferings.current?.availablePackages?.length || 0);
+
+      if (allOfferings.current?.availablePackages?.length) {
+        allOfferings.current.availablePackages.forEach((pkg, i) => {
+          console.log(`[RevenueCat] Package ${i}:`, {
+            identifier: pkg.identifier,
+            productId: pkg.product.identifier,
+            price: pkg.product.priceString,
+          });
+        });
+      } else {
+        console.warn('[RevenueCat] No packages available in current offering');
+      }
+
+      setOfferings(allOfferings.current);
     } catch (err) {
-      console.error('Failed to fetch offerings:', err);
-      setError('Failed to load purchase options');
+      console.warn('[RevenueCat] Failed to fetch offerings:', err);
+      // Non-fatal - continue without offerings
     }
   };
 
   const refreshOfferings = useCallback(async () => {
+    // Skip if SDK not available
+    if (!revenueCatAvailable || !isConfigured) return;
+
     setIsLoading(true);
     await fetchOfferings();
     setIsLoading(false);
-  }, []);
+  }, [isConfigured]);
 
   // Fetch credits from Supabase
   const refreshCredits = useCallback(async () => {
@@ -242,6 +324,16 @@ export function RevenueCatProvider({ children }: RevenueCatProviderProps) {
       return false;
     }
 
+    // Check if RevenueCat SDK is available (may be unavailable on iOS 26 beta)
+    if (!revenueCatAvailable || !isConfigured) {
+      Alert.alert(
+        'Purchases Unavailable',
+        'In-app purchases are temporarily unavailable. This may be due to a beta iOS version. Please try again later or contact support.',
+        [{ text: 'OK' }]
+      );
+      return false;
+    }
+
     setIsPurchasing(true);
     setError(null);
 
@@ -283,9 +375,19 @@ export function RevenueCatProvider({ children }: RevenueCatProviderProps) {
     } finally {
       setIsPurchasing(false);
     }
-  }, [user, refreshCredits]);
+  }, [user, isConfigured, refreshCredits]);
 
   const restorePurchases = useCallback(async () => {
+    // Check if RevenueCat SDK is available
+    if (!revenueCatAvailable || !isConfigured) {
+      Alert.alert(
+        'Purchases Unavailable',
+        'In-app purchases are temporarily unavailable. Please try again later.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 
@@ -295,13 +397,13 @@ export function RevenueCatProvider({ children }: RevenueCatProviderProps) {
       Alert.alert('Success', 'Purchases restored successfully.');
     } catch (err) {
       const purchaseError = err as PurchasesError;
-      console.error('Failed to restore purchases:', purchaseError);
+      console.error('[RevenueCat] Failed to restore purchases:', purchaseError);
       setError(purchaseError.message || 'Failed to restore purchases');
       Alert.alert('Error', 'Failed to restore purchases. Please try again.');
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [isConfigured]);
 
   const value: RevenueCatContextType = {
     offerings,
@@ -311,6 +413,7 @@ export function RevenueCatProvider({ children }: RevenueCatProviderProps) {
     error,
     credits,
     isLoadingCredits,
+    isAvailable: sdkAvailable && isConfigured,
     purchasePackage,
     restorePurchases,
     refreshOfferings,
