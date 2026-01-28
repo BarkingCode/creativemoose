@@ -26,13 +26,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "../../contexts/AuthContext";
-import { useAnonymousCredits } from "../../hooks/useAnonymousCredits";
 import FormInput from "../../components/form/FormInput";
 import {
   signUpEmailSchema,
   SignUpEmailData,
 } from "../../lib/validation/auth-schemas";
-import { Mail, Lock, Gift, Trash2 } from "lucide-react-native";
+import { Mail, Lock, Gift } from "lucide-react-native";
 import { HeaderButton } from "../../components/HeaderButton";
 
 type AuthMode = "options" | "email" | "success";
@@ -40,8 +39,6 @@ type AuthMode = "options" | "email" | "success";
 export default function SignUpScreen() {
   const router = useRouter();
   const { signUp, signInWithOAuth, signInWithAppleNative } = useAuth();
-  const { hasExhaustedFreeTries, resetCredits, freeTriesRemaining } =
-    useAnonymousCredits();
 
   const [mode, setMode] = useState<AuthMode>("options");
   const [isLoading, setIsLoading] = useState(false);
@@ -122,17 +119,12 @@ export default function SignUpScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View className="flex-1 px-6 pt-8">
-            {/* Back Button - hidden when user has exhausted free tries and is on options screen */}
-            {!(mode === "options" && hasExhaustedFreeTries) && (
-              <HeaderButton
-                variant="back"
-                onPress={handleBackPress}
-                className="mb-8"
-              />
-            )}
-            {mode === "options" && hasExhaustedFreeTries && (
-              <View className="mb-8 h-10" />
-            )}
+            {/* Back Button - always shown since users can use app anonymously */}
+            <HeaderButton
+              variant="back"
+              onPress={handleBackPress}
+              className="mb-8"
+            />
 
             {/* Header */}
             <View className="mb-6">
@@ -235,18 +227,7 @@ export default function SignUpScreen() {
                   </Link>
                 </View>
 
-                {/* Dev Only: Reset Free Credits */}
-                {__DEV__ && (
-                  <Pressable
-                    onPress={resetCredits}
-                    className="flex-row items-center justify-center gap-2 mt-8 py-3 border border-red-500/30 rounded-xl bg-red-500/10"
-                  >
-                    <Trash2 color="#ef4444" size={16} />
-                    <Text className="text-red-400 text-sm">
-                      DEV: Reset Free Credits ({freeTriesRemaining}/2)
-                    </Text>
-                  </Pressable>
-                )}
+                {/* Credits now managed by Supabase for all users */}
               </View>
             )}
 

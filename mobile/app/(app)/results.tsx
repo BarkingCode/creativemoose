@@ -42,7 +42,7 @@ import {
   generateSingleImage,
   base64ToDataUrl,
 } from "../../lib/fal";
-import { consumeAnonymousCredit } from "../../hooks/useAnonymousCredits";
+// Credits are now handled by Supabase for all users (anonymous + linked)
 import { SkeletonImageCard } from "../../components/SkeletonImageCard";
 import { ImagePreviewModal } from "../../components/ImagePreviewModal";
 import type { PhotoStyleId } from "../../shared/photo-styles";
@@ -120,60 +120,13 @@ export default function ResultsScreen() {
 
       const imageUrl = base64ToDataUrl(imageBase64);
 
-      // Check if authenticated
+      // All users (anonymous + linked) now have a session and use the same flow
       if (!session?.access_token) {
-        // Anonymous user - use preview mode (4 images via preview endpoint)
-        setIsPreview(true);
-        setIsReservingCredit(false);
-
-        try {
-          const result = await generatePreview({
-            imageUrl,
-            presetId,
-            styleId,
-          });
-
-          // Map all returned images to slots (now returns 4 images)
-          const newSlots: ImageSlot[] = [0, 1, 2, 3].map((index) => {
-            const previewImage = result.images[index];
-            return {
-              imageUrl: previewImage?.url || null,
-              imageId: null, // No database ID for preview images
-              isLoading: false,
-              error: previewImage?.url ? null : "Image not generated",
-            };
-          });
-
-          // Check if at least one image was generated
-          const hasAnyImage = newSlots.some((slot) => slot.imageUrl);
-          if (!hasAnyImage) {
-            throw new Error("No images returned from preview");
-          }
-
-          setImageSlots(newSlots);
-
-          // Consume anonymous credit ONLY after successful generation
-          await consumeAnonymousCredit();
-          console.log("[ResultsScreen] Anonymous credit consumed after successful preview");
-        } catch (err: any) {
-          if (err.message === "RATE_LIMITED") {
-            Alert.alert(
-              "Rate Limited",
-              "Preview mode allows one free generation per day. Sign up for unlimited generations!",
-              [
-                { text: "Cancel", style: "cancel" },
-                { text: "Sign Up", onPress: () => router.push("/(auth)/sign-up") },
-              ]
-            );
-            router.back();
-          } else {
-            setGlobalError(err.message || "Preview generation failed");
-          }
-        }
+        setGlobalError("Please wait while we set up your session...");
         return;
       }
 
-      // Authenticated user - use parallel generation
+      // All users use the authenticated parallel generation flow
       setIsPreview(false);
 
       // Force refresh the session to get a fresh JWT

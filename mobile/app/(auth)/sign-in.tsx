@@ -29,7 +29,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "../../contexts/AuthContext";
-import { useAnonymousCredits } from "../../hooks/useAnonymousCredits";
 import FormInput from "../../components/form/FormInput";
 import FormOTPInput from "../../components/form/FormOTPInput";
 import {
@@ -59,7 +58,6 @@ export function clearPersistedOtpState() {
 export default function SignInScreen() {
   const router = useRouter();
   const { signIn, signInWithOAuth, signInWithAppleNative, signInWithOTP, verifyOTP } = useAuth();
-  const { hasExhaustedFreeTries } = useAnonymousCredits();
 
   const [mode, setMode] = useState<AuthMode>("options");
   const [otpEmail, setOtpEmail] = useState("");
@@ -263,17 +261,12 @@ export default function SignInScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View className="flex-1 px-6 pt-8">
-            {/* Back Button - hidden when user has exhausted free tries and is on options screen */}
-            {!(mode === "options" && hasExhaustedFreeTries) && (
-              <HeaderButton
-                variant="back"
-                onPress={handleBackPress}
-                className="mb-8"
-              />
-            )}
-            {mode === "options" && hasExhaustedFreeTries && (
-              <View className="mb-8 h-10" />
-            )}
+            {/* Back Button - always shown since users can use app anonymously */}
+            <HeaderButton
+              variant="back"
+              onPress={handleBackPress}
+              className="mb-8"
+            />
 
             {/* Header */}
             <View className="mb-8">
