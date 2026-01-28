@@ -20,9 +20,11 @@ export default function TabLayout() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
 
-  // Redirect to landing if not authenticated
+  // All users (including anonymous) have a valid user object
+  // Only redirect if somehow there's no user at all (shouldn't happen)
   useEffect(() => {
     if (!isLoading && !user) {
+      console.log("[TabLayout] No user found, redirecting to landing");
       router.replace("/");
     }
   }, [user, isLoading, router]);
