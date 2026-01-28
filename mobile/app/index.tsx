@@ -30,7 +30,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { Image } from "expo-image";
 import { useAuth } from "../contexts/AuthContext";
-import { useAnonymousCredits } from "../hooks/useAnonymousCredits";
+import { useRevenueCat } from "../contexts/RevenueCatContext";
 import { SplashScreen, hasSplashBeenSeen } from "../components/SplashScreen";
 import {
   InstructionOverlay,
@@ -59,28 +59,27 @@ async function resizeImageForUpload(uri: string): Promise<{ uri: string; base64:
 
 export default function LandingScreen() {
   const router = useRouter();
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading, isAnonymous } = useAuth();
+  const { credits, isLoadingCredits, refreshCredits } = useRevenueCat();
   const cameraRef = useRef<CameraView>(null);
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
 
-  // Anonymous credits
-  const {
-    freeTriesRemaining,
-    hasFreeTriesLeft,
-    isReady: creditsReady,
-    resetCredits, // For testing - remove in production
-  } = useAnonymousCredits();
+  // Calculate available credits from Supabase (works for both anonymous and authenticated)
+  const totalCredits = (credits?.free_credits ?? 0) + (credits?.image_credits ?? 0);
+  const hasCredits = totalCredits > 0;
+  const creditsReady = !isLoadingCredits && user !== null;
 
   // Debug: Log credit state changes
   useEffect(() => {
     if (creditsReady) {
       console.log("[LandingScreen] Credits ready:", {
-        freeTriesRemaining,
-        hasFreeTriesLeft,
+        totalCredits,
+        hasCredits,
+        isAnonymous,
       });
     }
-  }, [creditsReady, freeTriesRemaining, hasFreeTriesLeft]);
+  }, [creditsReady, totalCredits, hasCredits, isAnonymous]);
 
   // UI State
   const [showSplash, setShowSplash] = useState(true);
@@ -107,23 +106,13 @@ export default function LandingScreen() {
     }, [])
   );
 
-  // Track if user has left this screen (to distinguish initial mount from return)
-  const hasLeftScreen = useRef(false);
-
-  // Redirect to sign-up when RETURNING to camera with no tries left
+  // Refresh credits when screen comes into focus
   useFocusEffect(
     useCallback(() => {
-      // Only redirect when returning to screen (not on initial mount)
-      if (hasLeftScreen.current && creditsReady && !hasFreeTriesLeft) {
-        console.log("[LandingScreen] Returning with no tries left, redirecting to sign-up");
-        router.replace("/(auth)/sign-up");
+      if (user?.id) {
+        refreshCredits();
       }
-
-      // Cleanup: mark that user has left the screen
-      return () => {
-        hasLeftScreen.current = true;
-      };
-    }, [creditsReady, hasFreeTriesLeft, router])
+    }, [user?.id, refreshCredits])
   );
 
   // Mark mounted
@@ -145,16 +134,15 @@ export default function LandingScreen() {
   };
 
   // Track if initial redirect has happened to prevent multiple redirects
-  // (e.g., when results.tsx refreshes the session, user state changes)
   const hasRedirected = useRef(false);
 
-  // Redirect authenticated users to tabs (only once)
+  // Redirect non-anonymous authenticated users to tabs (users who linked their account)
   useEffect(() => {
-    if (!authLoading && user && !hasRedirected.current) {
+    if (!authLoading && user && !isAnonymous && !hasRedirected.current) {
       hasRedirected.current = true;
       router.replace("/(tabs)/home");
     }
-  }, [authLoading, user, router]);
+  }, [authLoading, user, isAnonymous, router]);
 
 
   // Handle splash complete
@@ -170,14 +158,14 @@ export default function LandingScreen() {
   const handleCapture = async () => {
     if (!cameraRef.current) return;
 
-    // Check if user has tries left (handles edge case of 0 tries on initial app open)
-    if (!hasFreeTriesLeft) {
+    // Check if user has credits
+    if (!hasCredits) {
       Alert.alert(
-        "No Free Tries Left",
-        "Sign up to get more generations!",
+        "No Credits",
+        "Purchase credits to generate more images!",
         [
           { text: "Cancel", style: "cancel" },
-          { text: "Sign Up", onPress: () => router.push("/(auth)/sign-up") },
+          { text: "Get Credits", onPress: () => router.push("/(app)/purchase") },
         ]
       );
       return;
@@ -211,14 +199,14 @@ export default function LandingScreen() {
 
   // Handle image from gallery
   const handlePickImage = async () => {
-    // Check if user has tries left (handles edge case of 0 tries on initial app open)
-    if (!hasFreeTriesLeft) {
+    // Check if user has credits
+    if (!hasCredits) {
       Alert.alert(
-        "No Free Tries Left",
-        "Sign up to get more generations!",
+        "No Credits",
+        "Purchase credits to generate more images!",
         [
           { text: "Cancel", style: "cancel" },
-          { text: "Sign Up", onPress: () => router.push("/(auth)/sign-up") },
+          { text: "Get Credits", onPress: () => router.push("/(app)/purchase") },
         ]
       );
       return;
@@ -267,8 +255,8 @@ export default function LandingScreen() {
     );
   }
 
-  // Authenticated users will be redirected
-  if (user) {
+  // Non-anonymous authenticated users will be redirected to tabs
+  if (user && !isAnonymous) {
     return null;
   }
 
@@ -316,7 +304,7 @@ export default function LandingScreen() {
       <InstructionOverlay
         isOpen={showInstructions}
         onClose={() => setShowInstructions(false)}
-        freeTriesRemaining={freeTriesRemaining}
+        freeTriesRemaining={totalCredits}
       />
 
       {/* Camera View - only rendered when focused and not showing overlays */}
@@ -368,14 +356,23 @@ export default function LandingScreen() {
 
           <View className="flex-1" />
 
-          {/* Free Tries Banner */}
-          {freeTriesRemaining > 0 && (
+          {/* Credits Banner */}
+          {totalCredits > 0 && (
             <View className="self-center bg-emerald-500/90 px-4 py-2 rounded-[20px] mb-4">
               <Text className="text-white text-[13px] font-semibold">
-                {freeTriesRemaining} free{" "}
-                {freeTriesRemaining === 1 ? "try" : "tries"} remaining
+                {totalCredits} credit{totalCredits === 1 ? "" : "s"} remaining
               </Text>
             </View>
+          )}
+          {totalCredits === 0 && creditsReady && (
+            <Pressable 
+              onPress={() => router.push("/(app)/purchase")}
+              className="self-center bg-amber-500/90 px-4 py-2 rounded-[20px] mb-4"
+            >
+              <Text className="text-white text-[13px] font-semibold">
+                Get credits to generate →
+              </Text>
+            </Pressable>
           )}
 
           {/* Bottom Controls */}
@@ -427,15 +424,17 @@ export default function LandingScreen() {
               </Pressable>
             </View>
 
-            {/* Sign In Link */}
-            <Pressable
-              onPress={() => router.push("/(auth)/sign-in")}
-              className="self-center mt-5"
-            >
-              <Text className="text-white/60 text-sm">
-                Already have an account? Sign in
-              </Text>
-            </Pressable>
+            {/* Account Link - for anonymous users to preserve data across devices */}
+            {isAnonymous && (
+              <Pressable
+                onPress={() => router.push("/(auth)/sign-in")}
+                className="self-center mt-5"
+              >
+                <Text className="text-white/60 text-sm">
+                  Link account to save across devices
+                </Text>
+              </Pressable>
+            )}
           </View>
         </View>
       </CameraView>
