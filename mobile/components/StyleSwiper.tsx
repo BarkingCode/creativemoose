@@ -13,7 +13,7 @@
 
 import { useRef, useEffect, useCallback, useState } from "react";
 import { View, Text, Pressable } from "react-native";
-import { FlashList } from "@shopify/flash-list";
+import { FlashList, FlashListRef } from "@shopify/flash-list";
 import Animated, {
   useSharedValue,
   useAnimatedScrollHandler,
@@ -22,6 +22,7 @@ import Animated, {
   Extrapolation,
   withTiming,
   runOnJS,
+  SharedValue,
 } from "react-native-reanimated";
 
 interface Style {
@@ -54,7 +55,7 @@ function StyleItem({
 }: {
   item: Style;
   index: number;
-  scrollY: Animated.SharedValue<number>;
+  scrollY: SharedValue<number>;
   isSelected: boolean;
   onPress: () => void;
 }) {
@@ -131,7 +132,7 @@ function AnimatedLabel({
   labelOpacity,
 }: {
   name: string;
-  labelOpacity: Animated.SharedValue<number>;
+  labelOpacity: SharedValue<number>;
 }) {
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: labelOpacity.value,
@@ -187,7 +188,7 @@ export function StyleSwiper({
   selectedStyleId,
   onStyleChange,
 }: StyleSwiperProps) {
-  const listRef = useRef<FlashList<Style>>(null);
+  const listRef = useRef<FlashListRef<Style>>(null);
   const scrollY = useSharedValue(0);
   const labelOpacity = useSharedValue(0);
   const [centeredIndex, setCenteredIndex] = useState(0);
@@ -306,7 +307,6 @@ export function StyleSwiper({
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}
-          estimatedItemSize={ITEM_HEIGHT}
           snapToInterval={ITEM_HEIGHT}
           decelerationRate="fast"
           onScroll={scrollHandler}

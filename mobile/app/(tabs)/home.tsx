@@ -42,8 +42,8 @@ interface FeedImage {
   image_url: string;
   preset_id: string;
   created_at: string;
-  user_avatar_url?: string;
-  user_name?: string;
+  user_avatar_url?: string | null;
+  user_name?: string | null;
 }
 
 export default function HomeScreen() {
@@ -350,7 +350,6 @@ export default function HomeScreen() {
           data={images}
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
-          estimatedItemSize={IMAGE_SIZE + 16}
           contentContainerStyle={{ paddingBottom: 100 }}
           refreshControl={
             <RefreshControl

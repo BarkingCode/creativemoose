@@ -273,7 +273,6 @@ export default function GalleryScreen() {
           renderItem={renderItem}
           keyExtractor={(item) => item.id}
           numColumns={2}
-          estimatedItemSize={ITEM_HEIGHT}
           contentContainerStyle={{ paddingHorizontal: PADDING, paddingTop: PADDING, paddingBottom: 100 }}
           refreshControl={
             <RefreshControl

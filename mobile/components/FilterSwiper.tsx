@@ -23,6 +23,7 @@ import Animated, {
   Extrapolation,
   withTiming,
   runOnJS,
+  SharedValue,
 } from "react-native-reanimated";
 
 interface Filter {
@@ -53,7 +54,7 @@ function FilterItem({
 }: {
   item: Filter;
   index: number;
-  scrollX: Animated.SharedValue<number>;
+  scrollX: SharedValue<number>;
   itemOffsets: number[];
   isSelected: boolean;
   onPress: () => void;
