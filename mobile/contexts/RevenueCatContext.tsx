@@ -319,8 +319,10 @@ export function RevenueCatProvider({ children }: RevenueCatProviderProps) {
   };
 
   const purchasePackage = useCallback(async (pkg: PurchasesPackage): Promise<boolean> => {
-    if (!user) {
-      Alert.alert('Sign In Required', 'Please sign in to make a purchase.');
+    // Anonymous users can purchase - they have a valid Supabase user ID
+    if (!user?.id) {
+      console.error('[RevenueCat] No user ID available for purchase');
+      Alert.alert('Error', 'Unable to process purchase. Please restart the app.');
       return false;
     }
 
