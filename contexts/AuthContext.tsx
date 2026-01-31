@@ -18,6 +18,7 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   isLoading: boolean;
+  isAnonymous: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
@@ -26,6 +27,7 @@ interface AuthContextType {
   signInWithOTP: (email: string) => Promise<{ error: Error | null; isNewUser: boolean }>;
   verifyOTP: (email: string, token: string) => Promise<{ error: Error | null }>;
   deleteAccount: () => Promise<{ error: Error | null }>;
+  linkWithApple: () => Promise<{ error: Error | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -35,13 +37,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Check if current user is anonymous
+  const isAnonymous = user?.is_anonymous ?? false;
+
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setIsLoading(false);
-    });
+    // Get initial session, create anonymous user if none exists
+    const initializeAuth = async () => {
+      const { data: { session: existingSession } } = await supabase.auth.getSession();
+
+      if (existingSession) {
+        setSession(existingSession);
+        setUser(existingSession.user);
+        setIsLoading(false);
+      } else {
+        // No session — create anonymous user
+        console.log("[AuthContext] No session found, creating anonymous user");
+        const { data, error } = await supabase.auth.signInAnonymously();
+
+        if (error) {
+          console.error("[AuthContext] Failed to create anonymous user:", error);
+          setIsLoading(false);
+          return;
+        }
+
+        console.log("[AuthContext] Anonymous user created:", data.user?.id);
+        setSession(data.session);
+        setUser(data.user);
+        setIsLoading(false);
+      }
+    };
+
+    initializeAuth();
 
     // Listen for auth state changes
     const {
@@ -260,12 +286,56 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  /**
+   * Link anonymous account with Apple Sign-In
+   * Preserves all data (credits, generations) under the same user ID
+   */
+  const linkWithApple = async (): Promise<{ error: Error | null }> => {
+    if (!user?.is_anonymous) {
+      return { error: new Error("Account is already linked") };
+    }
+
+    try {
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+
+      if (!credential.identityToken) {
+        return { error: new Error("No identity token received from Apple") };
+      }
+
+      // Link the anonymous account with Apple identity
+      const { error } = await supabase.auth.linkIdentity({
+        provider: "apple",
+        options: {
+          skipBrowserRedirect: true,
+        },
+      });
+
+      if (error) {
+        console.error("[AuthContext] linkIdentity error:", error);
+        return { error: error as Error };
+      }
+
+      return { error: null };
+    } catch (e: any) {
+      if (e.code === "ERR_REQUEST_CANCELED") {
+        return { error: new Error("Authentication cancelled") };
+      }
+      return { error: e as Error };
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
         user,
         session,
         isLoading,
+        isAnonymous,
         signIn,
         signUp,
         signOut,
@@ -274,6 +344,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signInWithOTP,
         verifyOTP,
         deleteAccount,
+        linkWithApple,
       }}
     >
       {children}

@@ -41,12 +41,11 @@ import { useAuth } from "../contexts/AuthContext";
 import { useRevenueCat } from "../contexts/RevenueCatContext";
 import { supabase } from "../lib/supabase";
 import {
-  generatePreview,
   reserveCredit,
   generateSingleImage,
   base64ToDataUrl,
 } from "../lib/fal";
-import { consumeAnonymousCredit } from "../hooks/useAnonymousCredits";
+// Credits are now handled by Supabase for all users (anonymous + linked)
 import { SkeletonImageCard } from "../components/SkeletonImageCard";
 import { ImagePreviewModal } from "../components/ImagePreviewModal";
 import type { PhotoStyleId } from "../shared/photo-styles";
@@ -67,7 +66,7 @@ export default function ResultsScreen() {
     presetId: string;
     styleId: string;
   }>();
-  const { session } = useAuth();
+  const { session, isAnonymous } = useAuth();
   const { refreshCredits } = useRevenueCat();
 
   // State for progressive image loading
@@ -77,7 +76,6 @@ export default function ResultsScreen() {
     { imageUrl: null, imageId: null, isLoading: true, error: null },
     { imageUrl: null, imageId: null, isLoading: true, error: null },
   ]);
-  const [isPreview, setIsPreview] = useState(false);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [downloadingIndex, setDownloadingIndex] = useState<number | null>(null);
   const [isReservingCredit, setIsReservingCredit] = useState(true);
@@ -124,66 +122,11 @@ export default function ResultsScreen() {
 
       const imageUrl = base64ToDataUrl(imageBase64);
 
-      // Check if authenticated
+      // All users (anonymous + linked) now have a session and use the same flow
       if (!session?.access_token) {
-        // Anonymous user - use preview mode (4 images via preview endpoint)
-        setIsPreview(true);
-        setIsReservingCredit(false);
-
-        try {
-          const result = await generatePreview({
-            imageUrl,
-            presetId,
-            styleId,
-          });
-
-          // Map all returned images to slots (now returns 4 images)
-          const newSlots: ImageSlot[] = [0, 1, 2, 3].map((index) => {
-            const previewImage = result.images[index];
-            return {
-              imageUrl: previewImage?.url || null,
-              imageId: null, // No database ID for preview images
-              isLoading: false,
-              error: previewImage?.url ? null : "Image not generated",
-            };
-          });
-
-          // Check if at least one image was generated
-          const hasAnyImage = newSlots.some((slot) => slot.imageUrl);
-          if (!hasAnyImage) {
-            throw new Error("No images returned from preview");
-          }
-
-          setImageSlots(newSlots);
-
-          // Consume anonymous credit ONLY after successful generation
-          await consumeAnonymousCredit();
-          console.log(
-            "[ResultsScreen] Anonymous credit consumed after successful preview"
-          );
-        } catch (err: any) {
-          if (err.message === "RATE_LIMITED") {
-            Alert.alert(
-              "Rate Limited",
-              "Preview mode allows one free generation per day. Sign up for unlimited generations!",
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Sign Up",
-                  onPress: () => router.push("/(auth)/sign-up"),
-                },
-              ]
-            );
-            router.back();
-          } else {
-            setGlobalError(err.message || "Preview generation failed");
-          }
-        }
+        setGlobalError("Please wait while we set up your session...");
         return;
       }
-
-      // Authenticated user - use parallel generation
-      setIsPreview(false);
 
       // Force refresh the session to get a fresh JWT
       const {
@@ -342,26 +285,6 @@ export default function ResultsScreen() {
   }, [params, session, router]);
 
   const handleDownload = async (imageUri: string, index: number) => {
-    // For preview mode, show upgrade prompt instead of downloading
-    if (isPreview) {
-      Alert.alert(
-        "Preview Image",
-        "This is a preview-quality image. Sign up to download high-resolution images without watermarks!",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Sign Up",
-            onPress: () => router.push("/(auth)/sign-up"),
-          },
-          {
-            text: "Save Anyway",
-            onPress: () => performDownload(imageUri, index),
-          },
-        ]
-      );
-      return;
-    }
-
     await performDownload(imageUri, index);
   };
 
@@ -498,21 +421,9 @@ export default function ResultsScreen() {
       <View className="flex-row justify-end px-4 py-2">
         <HeaderButton
           variant="close"
-          onPress={() => router.replace(isPreview ? "/" : "/(tabs)/home")}
+          onPress={() => router.replace(isAnonymous ? "/" : "/(tabs)/home")}
         />
       </View>
-
-      {/* Preview Mode Notice */}
-      {isPreview && (
-        <View className="mx-4 mb-4 bg-amber-500/20 rounded-xl p-3">
-          <Text className="text-amber-500 text-center font-medium">
-            Preview Mode
-          </Text>
-          <Text className="text-amber-500/80 text-center text-sm mt-1">
-            Sign up for high-resolution images without watermarks!
-          </Text>
-        </View>
-      )}
 
       {/* Images List - Skeleton + Progressive Loading */}
       <ScrollView className="flex-1 px-4">
@@ -575,14 +486,6 @@ export default function ResultsScreen() {
                         )
                       }
                     />
-                    {/* Watermark overlay for preview mode */}
-                    {isPreview && (
-                      <View className="absolute bottom-0 right-0 left-0 bg-black/40 py-1 px-2">
-                        <Text className="text-white/80 text-[10px] text-right font-medium">
-                          PhotoApp Preview
-                        </Text>
-                      </View>
-                    )}
                   </View>
                 </View>
               </Pressable>
@@ -593,14 +496,14 @@ export default function ResultsScreen() {
 
       {/* Bottom Actions */}
       <View className="px-4 pb-4">
-        {isPreview ? (
+        {isAnonymous ? (
           <View className="gap-3">
             <Pressable
-              onPress={() => router.push("/(auth)/sign-up")}
+              onPress={() => router.push("/(auth)/sign-in")}
               className="bg-white py-4 rounded-2xl items-center"
             >
               <Text className="text-background font-semibold text-lg">
-                Sign Up for More
+                Link Account to Save
               </Text>
             </Pressable>
             <Pressable
@@ -608,7 +511,7 @@ export default function ResultsScreen() {
               className="bg-secondary py-4 rounded-2xl items-center"
             >
               <Text className="text-white font-semibold text-lg">
-                Try Another
+                Generate Another
               </Text>
             </Pressable>
           </View>
@@ -637,7 +540,7 @@ export default function ResultsScreen() {
             ? imageSlots[selectedImageIndex].imageId
             : null
         }
-        isPreview={isPreview}
+        isPreview={false}
         onClose={() => setSelectedImageIndex(null)}
         onSave={async () => {
           if (
