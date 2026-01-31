@@ -4,86 +4,56 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-PhotoApp is a monorepo containing a mobile app and web app for AI photo generation with Canadian-themed presets. Users upload photos, select presets/styles, and receive AI-generated image variations.
+**Creative Moose** - Expo/React Native mobile app for AI photo generation with Canadian-themed filters. Users take selfies and get placed into Canadian environments/situations (maple forests, hockey rinks, northern lights, etc.) via fal.ai through Supabase Edge Functions.
 
 ## Repository Structure
 
 ```
-photoapp/
-├── mobile/           # Expo/React Native mobile app (see mobile/CLAUDE.md)
-├── app/              # Next.js web app (App Router)
-├── lib/              # Shared web utilities
-├── components/       # Shared web components
+creativemoose/
+├── app/              # Expo Router screens
+├── components/       # React Native components
+├── contexts/         # Context providers (Auth, RevenueCat)
+├── hooks/            # Custom hooks
+├── lib/              # Utilities (Supabase client, fal.ai)
 ├── shared/           # Shared preset/style definitions
-└── supabase/
-    ├── functions/    # Edge Functions (fal.ai integration)
-    ├── migrations/   # Database migrations
-    └── schema.sql    # Base schema
+├── supabase/         # Edge Functions & migrations
+├── assets/           # App icons and images
+├── ios/              # iOS native project
+└── android/          # Android native project
 ```
 
 ## Technology Stack
 
-| Layer | Mobile | Web | Backend |
-|-------|--------|-----|---------|
-| Framework | Expo/React Native | Next.js (App Router) | Supabase |
-| Auth | Supabase Auth | Supabase Auth | - |
-| Payments | RevenueCat | - | - |
-| AI Generation | - | - | fal.ai via Edge Functions |
-| Database | - | - | PostgreSQL (Supabase) |
-| Storage | - | - | Supabase Storage |
-
-## Supabase Edge Functions
-
-All AI generation happens server-side via Edge Functions:
-
-| Function | Flow | Purpose |
-|----------|------|---------|
-| `reserve-credit` | Mobile parallel | Reserve credit, create session |
-| `generate-single` | Mobile parallel | Generate one image (called 4x) |
-| `generate` | Web serial | Generate all 4 images sequentially |
-| `preview` | Both | Anonymous rate-limited preview |
-
-Shared code in `_shared/`: `auth.ts`, `credits.ts`, `presets.ts`, `cors.ts`
-
-You have access to supabase cli and mcp please use it when need to push function or migrations
-
-## Database Schema
-
-Core tables (see `supabase/schema.sql` + migrations):
-- `profiles` - User data (auto-created on signup)
-- `credits` - Credit balance (free_credits + image_credits)
-- `generations` - Generation history (single source of truth)
-- `generation_sessions` - Temporary parallel session tracking
-- `images` - Individual image records with storage paths
-- `purchases` - RevenueCat purchase records
-- `preview_requests` - Rate limiting for anonymous users
+- **Expo SDK 54** + React Native + TypeScript
+- **Expo Router** for file-based navigation
+- **Supabase** for auth, database, and Edge Functions
+- **RevenueCat** for in-app purchases
+- **fal.ai** for AI image generation (via Edge Functions)
+- **NativeWind** (Tailwind CSS for React Native)
 
 ## Development Commands
 
-### Mobile (in `/mobile`)
 ```bash
-npm start              # Expo dev server
-npm run ios            # iOS simulator
-npm run android        # Android emulator
+npm start              # Start Expo dev server
+npm run ios            # Run on iOS simulator
+npm run android        # Run on Android emulator
+npm run prebuild       # Generate native projects
+npm run build:ios      # Build iOS with EAS
+npm run build:android  # Build Android with EAS
 ```
 
-### Web (root)
-```bash
-pnpm dev               # Next.js dev server
-pnpm build             # Production build
-```
+## Supabase Commands
 
-### Supabase
 ```bash
-supabase start         # Local Supabase
-supabase db push       # Apply migrations
-supabase functions serve  # Local Edge Functions
+supabase start                    # Local Supabase
+supabase db push                  # Apply migrations
+supabase functions serve          # Local Edge Functions
 supabase functions deploy <name>  # Deploy function
 ```
 
 ## Environment Variables
 
-### Mobile (`mobile/.env`)
+Required in `.env`:
 ```
 EXPO_PUBLIC_SUPABASE_URL=
 EXPO_PUBLIC_SUPABASE_ANON_KEY=
@@ -91,40 +61,87 @@ EXPO_PUBLIC_REVENUECAT_IOS_KEY=
 EXPO_PUBLIC_REVENUECAT_ANDROID_KEY=
 ```
 
-### Web (`.env.local`)
+## Architecture
+
+### Navigation Structure (Expo Router)
+
 ```
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=
+app/
+├── _layout.tsx          # Root: AuthProvider + RevenueCatProvider
+├── index.tsx            # Entry: redirects based on auth state
+├── (auth)/              # Auth screens (sign-in, sign-up)
+├── (tabs)/              # Main tab navigation (home, generate, gallery)
+└── (app)/               # Full-screen flows (results, purchase, profile)
 ```
 
-### Edge Functions (Supabase Dashboard)
-```
-FAL_KEY=               # fal.ai API key
-```
+### Context Providers (in `contexts/`)
+
+- **AuthContext** - Wraps Supabase auth with `useAuth()` hook. Handles OAuth deep links via `creative-moose://auth/callback`
+- **RevenueCatContext** - In-app purchases with `useRevenueCat()` hook. Maps product IDs to credits and syncs with Supabase
+
+### Image Generation Flow
+
+**Parallel Generation (Authenticated Users):**
+1. `reserveCredit()` → Creates `generations` + `generation_sessions` records, returns `sessionId`
+2. `generateSingleImage()` x4 in parallel → Each uses `sessionId`, creates `images` record
+3. Images stored in Supabase Storage, URLs in `generations.image_urls`
+
+**Preview Mode (Anonymous Users):**
+1. `generatePreview()` → Rate-limited by IP (1/day), returns watermarked image
+2. No database persistence, no credits required
+
+### Supabase Edge Functions (in `supabase/functions/`)
+
+| Function | Purpose |
+|----------|---------|
+| `reserve-credit` | Decrements credit, creates generation session |
+| `generate-single` | Generates one image variant using fal.ai |
+| `preview` | Anonymous preview with rate limiting |
+
+Shared utilities in `_shared/`: `auth.ts`, `credits.ts`, `presets.ts`, `cors.ts`
+
+### Database Tables (Supabase)
+
+| Table | Purpose |
+|-------|---------|
+| `profiles` | User profiles (extends auth.users) |
+| `credits` | User credit balance (free + paid) |
+| `generations` | Generation history (canonical record) |
+| `generation_sessions` | Temporary parallel generation tracking |
+| `images` | Individual image records with storage paths |
+| `purchases` | RevenueCat purchase history |
+| `preview_requests` | Rate limiting for anonymous previews |
+
+### Credit System
+
+- **Free credits**: 1 per new user (stored in `credits.free_credits`)
+- **Paid credits**: Purchased via RevenueCat (stored in `credits.image_credits`)
+- **Decrement**: Uses `decrement_credits` RPC for atomic operations
+- **Add credits**: Uses `add_credits` RPC after purchase
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `lib/supabase.ts` | Supabase client with SecureStore adapter |
+| `lib/fal.ts` | Edge Function client for image generation |
+| `shared/presets.ts` | Preset definitions and picker options |
+| `shared/photo-styles.ts` | Photo style definitions |
 
 ## Conventions
 
-### Package Managers
-- **Web**: Use `pnpm`
-- **Mobile**: Use `npm`
+### Package Manager
+Use `npm` for this React Native project.
 
 ### Supabase Imports
-- **Next.js Server Components**: Import from `@supabase/ssr` or `supabase/server`
-- **Next.js Client Components** (`'use client'`): Import from `supabase/client`
-- **Mobile**: Always use `lib/supabase.ts`
+All code uses `lib/supabase.ts` client.
 
 ### Component Documentation
 Add JSDoc comment at top of new components describing purpose and capabilities.
 
-### File Creation Policy
-- Prefer editing existing files over creating new ones
-- Never proactively create documentation files unless explicitly requested
+### Error Handling
+Generation functions throw specific error strings: `"UNAUTHORIZED"`, `"INSUFFICIENT_CREDITS"`, `"RATE_LIMITED"`, `"INVALID_SESSION"`. Handle these explicitly in UI.
 
-## Credit System Architecture
-
-Both mobile and web use the same credit system:
-1. **Free credits**: 1 per new user (decremented first)
-2. **Paid credits**: Purchased via RevenueCat (mobile) or stored manually
-3. **Atomic operations**: Use `decrement_credits` RPC to prevent race conditions
-4. **Generation tracking**: All generations recorded in `generations` table
+### Deep Links
+OAuth callback URL: `creative-moose://auth/callback`
+Handled in `AuthContext` and `app/auth/callback.tsx`

@@ -1,113 +1,111 @@
 /**
  * useAnonymousCredits Hook
  *
- * Tracks anonymous user's free generation credits in localStorage.
- * Anonymous users get 2 lifetime free generations.
- * After using all free tries, they're prompted to sign up.
+ * Tracks anonymous user's free generation attempts using AsyncStorage.
+ * Anonymous users get 2 free generations before requiring signup.
  *
- * Storage key: "photoapp_anon_credits"
- * Format: { used: number, lastUsedAt: string | null }
+ * Features:
+ * - Persists across app restarts
+ * - Tracks remaining tries
+ * - Provides methods to consume and check credits
  */
 
-"use client";
-
 import { useState, useEffect, useCallback } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const STORAGE_KEY = "photoapp_anon_credits";
 const MAX_FREE_GENERATIONS = 2;
 
-interface AnonCreditsData {
-  used: number;
+interface AnonymousCreditsData {
+  usedCount: number;
   lastUsedAt: string | null;
 }
 
 interface UseAnonymousCreditsReturn {
-  /** Number of free generations remaining (0-2) */
   freeTriesRemaining: number;
-  /** Whether user has any free tries left */
   hasFreeTriesLeft: boolean;
-  /** Whether user has exhausted all free tries */
   hasExhaustedFreeTries: boolean;
-  /** Use one free generation credit */
-  useFreeTry: () => boolean;
-  /** Reset free tries (for testing/dev only) */
-  resetFreeTries: () => void;
-  /** Whether the hook is ready (hydrated from localStorage) */
+  useFreeTry: () => Promise<boolean>;
+  resetCredits: () => Promise<void>;
   isReady: boolean;
 }
 
-function getStoredCredits(): AnonCreditsData {
-  if (typeof window === "undefined") {
-    return { used: 0, lastUsedAt: null };
-  }
-
+/**
+ * Get credits data from AsyncStorage
+ */
+async function getCreditsData(): Promise<AnonymousCreditsData> {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      // Validate the structure
-      if (typeof parsed.used === "number") {
-        return {
-          used: parsed.used,
-          lastUsedAt: parsed.lastUsedAt || null,
-        };
-      }
+    const data = await AsyncStorage.getItem(STORAGE_KEY);
+    if (data) {
+      return JSON.parse(data);
     }
-  } catch (e) {
-    console.error("Error reading anonymous credits from localStorage:", e);
+  } catch (error) {
+    console.error("Error reading anonymous credits:", error);
   }
-
-  return { used: 0, lastUsedAt: null };
+  return { usedCount: 0, lastUsedAt: null };
 }
 
-function setStoredCredits(data: AnonCreditsData): void {
-  if (typeof window === "undefined") return;
-
+/**
+ * Save credits data to AsyncStorage
+ */
+async function saveCreditsData(data: AnonymousCreditsData): Promise<void> {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch (e) {
-    console.error("Error saving anonymous credits to localStorage:", e);
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch (error) {
+    console.error("Error saving anonymous credits:", error);
   }
 }
 
+/**
+ * Hook for managing anonymous user credits
+ */
 export function useAnonymousCredits(): UseAnonymousCreditsReturn {
-  const [credits, setCredits] = useState<AnonCreditsData>({
-    used: 0,
+  const [creditsData, setCreditsData] = useState<AnonymousCreditsData>({
+    usedCount: 0,
     lastUsedAt: null,
   });
   const [isReady, setIsReady] = useState(false);
 
-  // Hydrate from localStorage on mount
+  // Load credits on mount
   useEffect(() => {
-    const stored = getStoredCredits();
-    setCredits(stored);
-    setIsReady(true);
+    const loadCredits = async () => {
+      const data = await getCreditsData();
+      setCreditsData(data);
+      setIsReady(true);
+    };
+    loadCredits();
   }, []);
 
-  const freeTriesRemaining = Math.max(0, MAX_FREE_GENERATIONS - credits.used);
+  const freeTriesRemaining = Math.max(
+    0,
+    MAX_FREE_GENERATIONS - creditsData.usedCount
+  );
   const hasFreeTriesLeft = freeTriesRemaining > 0;
-  const hasExhaustedFreeTries = credits.used >= MAX_FREE_GENERATIONS;
+  const hasExhaustedFreeTries = creditsData.usedCount >= MAX_FREE_GENERATIONS;
 
-  const useFreeTry = useCallback((): boolean => {
-    if (!hasFreeTriesLeft) {
-      return false;
-    }
+  /**
+   * Consume one free try
+   */
+  const useFreeTry = useCallback(async (): Promise<boolean> => {
+    if (!hasFreeTriesLeft) return false;
 
-    const newData: AnonCreditsData = {
-      used: credits.used + 1,
+    const newData: AnonymousCreditsData = {
+      usedCount: creditsData.usedCount + 1,
       lastUsedAt: new Date().toISOString(),
     };
 
-    setCredits(newData);
-    setStoredCredits(newData);
-
+    await saveCreditsData(newData);
+    setCreditsData(newData);
     return true;
-  }, [credits.used, hasFreeTriesLeft]);
+  }, [creditsData.usedCount, hasFreeTriesLeft]);
 
-  const resetFreeTries = useCallback((): void => {
-    const newData: AnonCreditsData = { used: 0, lastUsedAt: null };
-    setCredits(newData);
-    setStoredCredits(newData);
+  /**
+   * Reset credits (for testing)
+   */
+  const resetCredits = useCallback(async (): Promise<void> => {
+    const newData: AnonymousCreditsData = { usedCount: 0, lastUsedAt: null };
+    await saveCreditsData(newData);
+    setCreditsData(newData);
   }, []);
 
   return {
@@ -115,41 +113,38 @@ export function useAnonymousCredits(): UseAnonymousCreditsReturn {
     hasFreeTriesLeft,
     hasExhaustedFreeTries,
     useFreeTry,
-    resetFreeTries,
+    resetCredits,
     isReady,
   };
 }
 
 /**
- * Check if user has free tries without using the hook
- * Useful for server-side or one-off checks
+ * Standalone function to check credits (for use outside hooks)
  */
-export function checkAnonymousCredits(): {
-  freeTriesRemaining: number;
-  hasFreeTriesLeft: boolean;
-} {
-  const stored = getStoredCredits();
-  const freeTriesRemaining = Math.max(0, MAX_FREE_GENERATIONS - stored.used);
+export async function checkAnonymousCredits(): Promise<{
+  remaining: number;
+  hasCredits: boolean;
+}> {
+  const data = await getCreditsData();
+  const remaining = Math.max(0, MAX_FREE_GENERATIONS - data.usedCount);
   return {
-    freeTriesRemaining,
-    hasFreeTriesLeft: freeTriesRemaining > 0,
+    remaining,
+    hasCredits: remaining > 0,
   };
 }
 
 /**
- * Mark one anonymous generation as used
- * Returns true if successful, false if no tries remaining
+ * Standalone function to consume a credit (for use outside hooks)
  */
-export function consumeAnonymousCredit(): boolean {
-  const stored = getStoredCredits();
-  if (stored.used >= MAX_FREE_GENERATIONS) {
+export async function consumeAnonymousCredit(): Promise<boolean> {
+  const data = await getCreditsData();
+  if (data.usedCount >= MAX_FREE_GENERATIONS) {
     return false;
   }
 
-  setStoredCredits({
-    used: stored.used + 1,
+  await saveCreditsData({
+    usedCount: data.usedCount + 1,
     lastUsedAt: new Date().toISOString(),
   });
-
   return true;
 }
