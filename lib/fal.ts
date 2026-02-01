@@ -12,7 +12,7 @@
  */
 
 import { Session } from "@supabase/supabase-js";
-import type { PhotoStyleId } from "../shared/photo-styles";
+import type { PhotoStyleId } from "../shared/presets";
 
 // Supabase URL from environment
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
@@ -181,10 +181,10 @@ export async function reserveCredit(
   // Debug: Log what we're sending
   console.log("[reserveCredit] === REQUEST DEBUG ===");
   console.log("[reserveCredit] URL:", edgeFunctionUrl);
-  console.log("[reserveCredit] Token length:", session.access_token.length);
+  console.log("[reserveCredit] Token length:", session.access_token?.length || 0);
+  console.log("[reserveCredit] Token prefix:", session.access_token?.substring(0, 20) || "NONE");
+  console.log("[reserveCredit] Token looks valid:", session.access_token?.startsWith("eyJ") ? "YES" : "NO");
   console.log("[reserveCredit] Image size:", Math.round((input.imageUrl?.length || 0) / 1024), "KB");
-  console.log("[reserveCredit] Preset:", input.presetId);
-  console.log("[reserveCredit] Style:", input.styleId);
   console.log("[reserveCredit] === END DEBUG ===");
 
   try {

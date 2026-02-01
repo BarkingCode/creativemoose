@@ -125,8 +125,15 @@ Shared utilities in `_shared/`: `auth.ts`, `credits.ts`, `presets.ts`, `cors.ts`
 |------|---------|
 | `lib/supabase.ts` | Supabase client with SecureStore adapter |
 | `lib/fal.ts` | Edge Function client for image generation |
-| `shared/presets.ts` | Preset definitions and picker options |
-| `shared/photo-styles.ts` | Photo style definitions |
+| `shared/presets.ts` | UI picker data for presets and styles (types + id/name/emoji) |
+| `supabase/functions/_shared/presets.ts` | Full preset prompts and `getPresetPromptWithStyle()` |
+
+### Presets & Styles
+
+When adding or modifying presets/styles, see **[docs/presets-architecture.md](docs/presets-architecture.md)** for the full guide. Key points:
+- Prompts live in edge function only (allows updates without app release)
+- Mobile has UI data only (id, name, emoji)
+- Both files must be updated when adding a preset
 
 ## Conventions
 

@@ -23,7 +23,6 @@ import { useIsFocused, useFocusEffect } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
-import * as ImageManipulator from "expo-image-manipulator";
 import { Image } from "expo-image";
 import Animated, {
   useSharedValue,
@@ -37,23 +36,7 @@ import { Image as ImageIcon, RefreshCw } from "lucide-react-native";
 import { HeaderButton } from "../../components/HeaderButton";
 import { StyleSwiper } from "../../components/StyleSwiper";
 import { FilterSwiper } from "../../components/FilterSwiper";
-import { PRESET_PICKER_OPTIONS } from "../../shared/presets";
-import { STYLE_PICKER_OPTIONS } from "../../shared/photo-styles";
-
-// Max dimension for API uploads (keeps base64 under ~500KB)
-const MAX_IMAGE_DIMENSION = 1024;
-
-/**
- * Resize image to max dimension while maintaining aspect ratio
- */
-async function resizeImageForUpload(uri: string): Promise<{ uri: string; base64: string }> {
-  const result = await ImageManipulator.manipulateAsync(
-    uri,
-    [{ resize: { width: MAX_IMAGE_DIMENSION } }],
-    { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-  );
-  return { uri: result.uri, base64: result.base64 || "" };
-}
+import { PRESET_PICKER_OPTIONS, STYLE_PICKER_OPTIONS } from "../../shared/presets";
 
 export default function GenerateScreen() {
   const router = useRouter();
@@ -107,23 +90,20 @@ export default function GenerateScreen() {
     );
 
     try {
+      // Capture at lower quality for faster processing
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.9,
+        quality: 0.7,
       });
 
       if (photo) {
         // Freeze frame immediately after capture
         setFrozenPhotoUri(photo.uri);
 
-        // Resize image for API upload (keeps payload small)
-        const resized = await resizeImageForUpload(photo.uri);
-        console.log("[GenerateScreen] Image resized, base64 size:", Math.round(resized.base64.length / 1024), "KB");
-
+        // Navigate immediately - results screen will handle resize
         router.push({
           pathname: "/(app)/results",
           params: {
-            photoUri: resized.uri,
-            photoBase64: resized.base64,
+            photoUri: photo.uri,
             presetId: selectedPreset,
             styleId: selectedStyle,
           },
@@ -150,20 +130,16 @@ export default function GenerateScreen() {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        quality: 0.9,
+        quality: 0.7,
       });
 
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
-        // Resize image for API upload (keeps payload small)
-        const resized = await resizeImageForUpload(asset.uri);
-        console.log("[GenerateScreen] Image resized, base64 size:", Math.round(resized.base64.length / 1024), "KB");
-
+        // Navigate immediately - results screen will handle resize
         router.push({
           pathname: "/(app)/results",
           params: {
-            photoUri: resized.uri,
-            photoBase64: resized.base64,
+            photoUri: asset.uri,
             presetId: selectedPreset,
             styleId: selectedStyle,
           },
@@ -268,22 +244,28 @@ export default function GenerateScreen() {
           {/* UI overlay layer */}
           <SafeAreaView className="flex-1" edges={["top", "bottom"]}>
             {/* Top Bar */}
-            <View className="flex-row items-center justify-between px-4 pt-2">
-              {/* Close button */}
-              <HeaderButton variant="close" onPress={() => router.back()} />
+            <View className="relative px-4 pt-2">
+              {/* Left: Close button */}
+              <View className="absolute left-4 top-2 z-10">
+                <HeaderButton variant="close" onPress={() => router.back()} />
+              </View>
 
-              {/* Centered Logo */}
-              <Image
-                source={require("../../assets/logo.png")}
-                style={{ width: 120, height: 40 }}
-                contentFit="contain"
-              />
+              {/* Center: Logo - truly centered */}
+              <View className="items-center">
+                <Image
+                  source={require("../../assets/logo.png")}
+                  style={{ width: 120, height: 40 }}
+                  contentFit="contain"
+                />
+              </View>
 
-              {/* Credits */}
-              <View className="bg-neutral-900/80 px-3 py-2 rounded-[20px]">
-                <Text className="text-white font-semibold text-sm">
-                  {totalCredits} {totalCredits === 1 ? "credit" : "credits"}
-                </Text>
+              {/* Right: Credits */}
+              <View className="absolute right-4 top-2 z-10">
+                <View className="bg-neutral-900/80 px-3 py-2 rounded-[20px]">
+                  <Text className="text-white font-semibold text-sm">
+                    {totalCredits} {totalCredits === 1 ? "credit" : "credits"}
+                  </Text>
+                </View>
               </View>
             </View>
 
@@ -297,7 +279,7 @@ export default function GenerateScreen() {
             <View className="flex-1" />
 
             {/* Bottom Controls */}
-            <View className="pb-6">
+            <View className="pb-2">
               {/* Preset Selector - Centered swipeable */}
               <View className="mb-4">
                 <FilterSwiper

@@ -35,8 +35,7 @@ import { Image as ImageIcon, RefreshCw } from "lucide-react-native";
 import { HeaderButton } from "../../components/HeaderButton";
 import { StyleSwiper } from "../../components/StyleSwiper";
 import { FilterSwiper } from "../../components/FilterSwiper";
-import { PRESET_PICKER_OPTIONS } from "../../shared/presets";
-import { STYLE_PICKER_OPTIONS } from "../../shared/photo-styles";
+import { PRESET_PICKER_OPTIONS, STYLE_PICKER_OPTIONS } from "../../shared/presets";
 
 // Max dimension for API uploads (keeps base64 under ~500KB)
 const MAX_IMAGE_DIMENSION = 1024;

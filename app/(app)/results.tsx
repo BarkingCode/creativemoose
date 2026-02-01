@@ -31,6 +31,7 @@ import { HeaderButton } from "../../components/HeaderButton";
 import { Image } from "expo-image";
 import { File, Paths } from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
+import * as ImageManipulator from "expo-image-manipulator";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../../contexts/AuthContext";
@@ -45,7 +46,8 @@ import {
 import { consumeAnonymousCredit } from "../../hooks/useAnonymousCredits";
 import { SkeletonImageCard } from "../../components/SkeletonImageCard";
 import { ImagePreviewModal } from "../../components/ImagePreviewModal";
-import type { PhotoStyleId } from "../../shared/photo-styles";
+import { LoginPromptModal } from "../../components/LoginPromptModal";
+import type { PhotoStyleId } from "../../shared/presets";
 
 
 // Image slot state for progressive loading
@@ -80,6 +82,8 @@ export default function ResultsScreen() {
   const [isReservingCredit, setIsReservingCredit] = useState(true);
   // Modal state for fullscreen preview
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
+  // Login modal for prompting sign-up
+  const [showLoginModal, setShowLoginModal] = useState(false);
 
   useEffect(() => {
     if (params.photoBase64 || params.photoUri) {
@@ -111,11 +115,18 @@ export default function ResultsScreen() {
       const presetId = params.presetId || "mapleAutumn";
       const styleId = (params.styleId || "photorealistic") as PhotoStyleId;
 
-      // Get the image as base64 data URL
+      // Get the image as base64 data URL (resize if needed for API upload)
       let imageBase64 = params.photoBase64 || "";
       if (!imageBase64 && params.photoUri) {
-        const file = new File(params.photoUri);
-        imageBase64 = await file.base64();
+        // Resize image for API upload (keeps payload under ~500KB)
+        console.log("[ResultsScreen] Resizing image for upload...");
+        const resized = await ImageManipulator.manipulateAsync(
+          params.photoUri,
+          [{ resize: { width: 1024 } }],
+          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        );
+        imageBase64 = resized.base64 || "";
+        console.log("[ResultsScreen] Image resized, base64 size:", Math.round(imageBase64.length / 1024), "KB");
       }
 
       const imageUrl = base64ToDataUrl(imageBase64);
@@ -162,7 +173,7 @@ export default function ResultsScreen() {
               "Preview mode allows one free generation per day. Sign up for unlimited generations!",
               [
                 { text: "Cancel", style: "cancel" },
-                { text: "Sign Up", onPress: () => router.push("/(auth)/sign-up") },
+                { text: "Sign Up", onPress: () => setShowLoginModal(true) },
               ]
             );
             router.back();
@@ -328,7 +339,7 @@ export default function ResultsScreen() {
           { text: "Cancel", style: "cancel" },
           {
             text: "Sign Up",
-            onPress: () => router.push("/(auth)/sign-up"),
+            onPress: () => setShowLoginModal(true),
           },
           {
             text: "Save Anyway",
@@ -492,7 +503,7 @@ export default function ResultsScreen() {
       )}
 
       {/* Images List - Skeleton + Progressive Loading */}
-      <ScrollView className="flex-1 px-4">
+      <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
         <View>
           {imageSlots.map((slot, index) => {
 
@@ -531,29 +542,25 @@ export default function ResultsScreen() {
                 className="w-full mb-4"
                 onPress={() => setSelectedImageIndex(index)}
               >
-                <View className="bg-card rounded-2xl overflow-hidden">
-                  <View className="relative">
-                    <Image
-                      source={{ uri: slot.imageUrl }}
-                      style={{ width: "100%", aspectRatio: 1 }}
-                      contentFit="cover"
-                      transition={300}
-                      onError={(e) => {
-                        console.error(`[ResultsScreen] Image ${index} failed to load:`, e);
-                        console.error(`  URL was: ${slot.imageUrl?.substring(0, 100)}`);
-                      }}
-                      onLoad={() => console.log(`[ResultsScreen] Image ${index} loaded successfully`)}
-                    />
-                    {/* Watermark overlay for preview mode */}
-                    {isPreview && (
-                      <View className="absolute bottom-0 right-0 left-0 bg-black/40 py-1 px-2">
-                        <Text className="text-white/80 text-[10px] text-right font-medium">
-                          PhotoApp Preview
-                        </Text>
-                      </View>
-                    )}
+                <Image
+                  source={{ uri: slot.imageUrl }}
+                  style={{ width: "100%", aspectRatio: 1 }}
+                  contentFit="cover"
+                  transition={300}
+                  onError={(e) => {
+                    console.error(`[ResultsScreen] Image ${index} failed to load:`, e);
+                    console.error(`  URL was: ${slot.imageUrl?.substring(0, 100)}`);
+                  }}
+                  onLoad={() => console.log(`[ResultsScreen] Image ${index} loaded successfully`)}
+                />
+                {/* Watermark overlay for preview mode */}
+                {isPreview && (
+                  <View className="absolute bottom-0 right-0 left-0 bg-black/40 py-1 px-2">
+                    <Text className="text-white/80 text-[10px] text-right font-medium">
+                      PhotoApp Preview
+                    </Text>
                   </View>
-                </View>
+                )}
               </Pressable>
             );
           })}
@@ -565,7 +572,7 @@ export default function ResultsScreen() {
         {isPreview ? (
           <View className="gap-3">
             <Pressable
-              onPress={() => router.push("/(auth)/sign-up")}
+              onPress={() => setShowLoginModal(true)}
               className="bg-white py-4 rounded-2xl items-center"
             >
               <Text className="text-background font-semibold text-lg">
@@ -622,6 +629,16 @@ export default function ResultsScreen() {
           if (selectedImageIndex !== null && selectedImageIndex < imageSlots.length - 1) {
             setSelectedImageIndex(selectedImageIndex + 1);
           }
+        }}
+      />
+
+      {/* Login Prompt Modal */}
+      <LoginPromptModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        onSuccess={() => {
+          setShowLoginModal(false);
+          router.replace("/(tabs)/home");
         }}
       />
     </SafeAreaView>

@@ -35,6 +35,7 @@ import { HeaderButton } from "../components/HeaderButton";
 import { Image } from "expo-image";
 import { File, Paths } from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
+import * as ImageManipulator from "expo-image-manipulator";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../contexts/AuthContext";
@@ -48,7 +49,7 @@ import {
 // Credits are now handled by Supabase for all users (anonymous + linked)
 import { SkeletonImageCard } from "../components/SkeletonImageCard";
 import { ImagePreviewModal } from "../components/ImagePreviewModal";
-import type { PhotoStyleId } from "../shared/photo-styles";
+import type { PhotoStyleId } from "../shared/presets";
 
 // Image slot state for progressive loading
 interface ImageSlot {
@@ -66,7 +67,7 @@ export default function ResultsScreen() {
     presetId: string;
     styleId: string;
   }>();
-  const { session, isAnonymous } = useAuth();
+  const { session } = useAuth();
   const { refreshCredits } = useRevenueCat();
 
   // State for progressive image loading
@@ -113,11 +114,18 @@ export default function ResultsScreen() {
       const presetId = params.presetId || "mapleAutumn";
       const styleId = (params.styleId || "photorealistic") as PhotoStyleId;
 
-      // Get the image as base64 data URL
+      // Get the image as base64 data URL (resize if needed for API upload)
       let imageBase64 = params.photoBase64 || "";
       if (!imageBase64 && params.photoUri) {
-        const file = new File(params.photoUri);
-        imageBase64 = await file.base64();
+        // Resize image for API upload (keeps payload under ~500KB)
+        console.log("[ResultsScreen] Resizing image for upload...");
+        const resized = await ImageManipulator.manipulateAsync(
+          params.photoUri,
+          [{ resize: { width: 1024 } }],
+          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        );
+        imageBase64 = resized.base64 || "";
+        console.log("[ResultsScreen] Image resized, base64 size:", Math.round(imageBase64.length / 1024), "KB");
       }
 
       const imageUrl = base64ToDataUrl(imageBase64);
@@ -129,14 +137,23 @@ export default function ResultsScreen() {
       }
 
       // Force refresh the session to get a fresh JWT
+      console.log("[ResultsScreen] Refreshing session...");
       const {
         data: { session: currentSession },
         error: refreshError,
       } = await supabase.auth.refreshSession();
 
+      console.log("[ResultsScreen] Refresh result:", {
+        hasSession: !!currentSession,
+        error: refreshError?.message,
+        tokenLength: currentSession?.access_token?.length,
+        tokenPrefix: currentSession?.access_token?.substring(0, 20),
+      });
+
       if (refreshError || !currentSession) {
         console.error("[ResultsScreen] Session refresh failed:", refreshError);
-        throw new Error("UNAUTHORIZED");
+        setGlobalError("Your session has expired. Please restart the app.");
+        return;
       }
 
       // Debug: Log token details
@@ -421,12 +438,12 @@ export default function ResultsScreen() {
       <View className="flex-row justify-end px-4 py-2">
         <HeaderButton
           variant="close"
-          onPress={() => router.replace(isAnonymous ? "/" : "/(tabs)/home")}
+          onPress={() => router.replace("/(tabs)/home")}
         />
       </View>
 
       {/* Images List - Skeleton + Progressive Loading */}
-      <ScrollView className="flex-1 px-4">
+      <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
         <View>
           {imageSlots.map((slot, index) => {
             // Show skeleton or completed image
@@ -464,30 +481,26 @@ export default function ResultsScreen() {
                 className="w-full mb-4"
                 onPress={() => setSelectedImageIndex(index)}
               >
-                <View className="bg-card rounded-2xl overflow-hidden">
-                  <View className="relative">
-                    <Image
-                      source={{ uri: slot.imageUrl }}
-                      style={{ width: "100%", aspectRatio: 1 }}
-                      contentFit="cover"
-                      transition={300}
-                      onError={(e) => {
-                        console.error(
-                          `[ResultsScreen] Image ${index} failed to load:`,
-                          e
-                        );
-                        console.error(
-                          `  URL was: ${slot.imageUrl?.substring(0, 100)}`
-                        );
-                      }}
-                      onLoad={() =>
-                        console.log(
-                          `[ResultsScreen] Image ${index} loaded successfully`
-                        )
-                      }
-                    />
-                  </View>
-                </View>
+                <Image
+                  source={{ uri: slot.imageUrl }}
+                  style={{ width: "100%", aspectRatio: 1 }}
+                  contentFit="cover"
+                  transition={300}
+                  onError={(e) => {
+                    console.error(
+                      `[ResultsScreen] Image ${index} failed to load:`,
+                      e
+                    );
+                    console.error(
+                      `  URL was: ${slot.imageUrl?.substring(0, 100)}`
+                    );
+                  }}
+                  onLoad={() =>
+                    console.log(
+                      `[ResultsScreen] Image ${index} loaded successfully`
+                    )
+                  }
+                />
               </Pressable>
             );
           })}
@@ -496,35 +509,14 @@ export default function ResultsScreen() {
 
       {/* Bottom Actions */}
       <View className="px-4 pb-4">
-        {isAnonymous ? (
-          <View className="gap-3">
-            <Pressable
-              onPress={() => router.push("/(auth)/sign-in")}
-              className="bg-white py-4 rounded-2xl items-center"
-            >
-              <Text className="text-background font-semibold text-lg">
-                Link Account to Save
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => router.replace("/")}
-              className="bg-secondary py-4 rounded-2xl items-center"
-            >
-              <Text className="text-white font-semibold text-lg">
-                Generate Another
-              </Text>
-            </Pressable>
-          </View>
-        ) : (
-          <Pressable
-            onPress={() => router.replace("/(app)/generate")}
-            className="bg-white py-4 rounded-2xl items-center"
-          >
-            <Text className="text-background font-semibold text-lg">
-              Generate More
-            </Text>
-          </Pressable>
-        )}
+        <Pressable
+          onPress={() => router.replace("/(tabs)/generate")}
+          className="bg-white py-4 rounded-2xl items-center"
+        >
+          <Text className="text-background font-semibold text-lg">
+            Generate More
+          </Text>
+        </Pressable>
       </View>
 
       {/* Fullscreen Image Preview Modal */}

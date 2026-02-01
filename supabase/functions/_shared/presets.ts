@@ -13,7 +13,7 @@ export type PhotoStyleId =
   | "cartoon"
   | "vintage50s"
   | "cinematic"
-  | "oil-painting"
+  | "oilPainting"
   | "watercolor";
 
 export interface Preset {
@@ -25,6 +25,9 @@ export interface Preset {
   requiresRefs: boolean;
   type: "image" | "video";
 }
+
+// Base instruction for face/identity preservation - applies to ALL generations
+const facePreservationBase = `Preserve the exact face from the reference image — same person, recognizable features. Generate their body, clothing, and pose naturally to fit the scene. Adapt outfit for the environment (warm layers for cold, etc.) and use natural body language. Do not warp or distort the face, but allow natural lighting and angle adjustments.`;
 
 const photoRealisticStyle = `The person is in a Canadian setting, natural composition, make the person look happy and relaxed, friendly atmosphere, realistic photo, high-resolution, cinematic detail, even lighting preserving all facial features, natural confident expression, photorealistic portrait quality, be creative. Do not just place the persons face to the picture. Blend the person into the picture with right proportions.`;
 
@@ -43,7 +46,7 @@ const styleMap: Record<PhotoStyleId, string> = {
   cartoon: cartoonStyle,
   vintage50s: vintage50sStyle,
   cinematic: cinematicStyle,
-  "oil-painting": oilPaintingStyle,
+  oilPainting: oilPaintingStyle,
   watercolor: watercolorStyle,
 };
 
@@ -167,5 +170,6 @@ export function getPresetPromptWithStyle(
   }
 
   const selectedStyle = styleMap[styleId] || photoRealisticStyle;
-  return `${selectedStyle}. ${preset.prompt}`;
+  // Combine: face preservation base + style + preset scene
+  return `${facePreservationBase} ${selectedStyle}. ${preset.prompt}`;
 }

@@ -27,7 +27,6 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
-import * as ImageManipulator from "expo-image-manipulator";
 import { Image } from "expo-image";
 import { useAuth } from "../contexts/AuthContext";
 import { useRevenueCat } from "../contexts/RevenueCatContext";
@@ -39,23 +38,7 @@ import {
 import { Info, Image as ImageIcon, RefreshCw } from "lucide-react-native";
 import { StyleSwiper } from "../components/StyleSwiper";
 import { FilterSwiper } from "../components/FilterSwiper";
-import { PRESET_PICKER_OPTIONS } from "../shared/presets";
-import { STYLE_PICKER_OPTIONS } from "../shared/photo-styles";
-
-// Max dimension for API uploads (keeps base64 under ~500KB)
-const MAX_IMAGE_DIMENSION = 1024;
-
-/**
- * Resize image to max dimension while maintaining aspect ratio
- */
-async function resizeImageForUpload(uri: string): Promise<{ uri: string; base64: string }> {
-  const result = await ImageManipulator.manipulateAsync(
-    uri,
-    [{ resize: { width: MAX_IMAGE_DIMENSION } }],
-    { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-  );
-  return { uri: result.uri, base64: result.base64 || "" };
-}
+import { PRESET_PICKER_OPTIONS, STYLE_PICKER_OPTIONS } from "../shared/presets";
 
 export default function LandingScreen() {
   const router = useRouter();
@@ -136,13 +119,13 @@ export default function LandingScreen() {
   // Track if initial redirect has happened to prevent multiple redirects
   const hasRedirected = useRef(false);
 
-  // Redirect non-anonymous authenticated users to tabs (users who linked their account)
+  // Redirect ALL authenticated users (including anonymous) to tabs
   useEffect(() => {
-    if (!authLoading && user && !isAnonymous && !hasRedirected.current) {
+    if (!authLoading && user && !hasRedirected.current) {
       hasRedirected.current = true;
       router.replace("/(tabs)/home");
     }
-  }, [authLoading, user, isAnonymous, router]);
+  }, [authLoading, user, router]);
 
 
   // Handle splash complete
@@ -174,19 +157,24 @@ export default function LandingScreen() {
     setIsCapturing(true);
 
     try {
+      // Capture at lower quality for faster processing
       const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.9,
+        quality: 0.7,
       });
 
       if (photo) {
         // Freeze frame immediately after capture
         setFrozenPhotoUri(photo.uri);
 
-        // Resize image for API upload (keeps payload small)
-        const resized = await resizeImageForUpload(photo.uri);
-        console.log("[LandingScreen] Image resized, base64 size:", Math.round(resized.base64.length / 1024), "KB");
-
-        await handleGenerate(resized.base64, resized.uri);
+        // Navigate immediately - results screen will handle resize
+        router.push({
+          pathname: "/results",
+          params: {
+            photoUri: photo.uri,
+            presetId: selectedPreset,
+            styleId: selectedStyle,
+          },
+        });
       }
     } catch (err) {
       console.error("Capture error:", err);
@@ -216,33 +204,24 @@ export default function LandingScreen() {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        quality: 0.9,
+        quality: 0.7,
       });
 
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
-        // Resize image for API upload (keeps payload small)
-        const resized = await resizeImageForUpload(asset.uri);
-        console.log("[LandingScreen] Image resized, base64 size:", Math.round(resized.base64.length / 1024), "KB");
-        await handleGenerate(resized.base64, resized.uri);
+        // Navigate immediately - results screen will handle resize
+        router.push({
+          pathname: "/results",
+          params: {
+            photoUri: asset.uri,
+            presetId: selectedPreset,
+            styleId: selectedStyle,
+          },
+        });
       }
     } finally {
       setIsPickingImage(false);
     }
-  };
-
-  // Navigate to unified results screen with photo params
-  // Generation happens in results.tsx (handles both anonymous and authenticated)
-  const handleGenerate = async (base64: string, uri: string) => {
-    router.push({
-      pathname: "/results",
-      params: {
-        photoUri: uri,
-        photoBase64: base64,
-        presetId: selectedPreset,
-        styleId: selectedStyle,
-      },
-    });
   };
 
 
@@ -255,8 +234,8 @@ export default function LandingScreen() {
     );
   }
 
-  // Non-anonymous authenticated users will be redirected to tabs
-  if (user && !isAnonymous) {
+  // All authenticated users (including anonymous) will be redirected to tabs
+  if (user) {
     return null;
   }
 
@@ -317,34 +296,38 @@ export default function LandingScreen() {
         >
         <View style={{ flex: 1, paddingTop: insets.top, paddingBottom: insets.bottom }}>
           {/* Top Bar */}
-          <View className="flex-row items-center justify-between px-4 pt-2" style={{ zIndex: 20 }}>
-            {/* Spacer for symmetry */}
-            <View className="w-10 h-10" />
+          <View className="relative px-4 pt-2" style={{ zIndex: 20 }}>
+            {/* Left: Spacer */}
+            <View className="absolute left-4 top-2 w-10 h-10" />
 
-            {/* Centered Logo */}
-            <Image
-              source={require("../assets/logo.png")}
-              style={{ width: 120, height: 40 }}
-              contentFit="contain"
-            />
+            {/* Center: Logo - truly centered */}
+            <View className="items-center">
+              <Image
+                source={require("../assets/logo.png")}
+                style={{ width: 120, height: 40 }}
+                contentFit="contain"
+              />
+            </View>
 
-            {/* Info button */}
-            <TouchableOpacity
-              onPress={() => setShowInstructions(true)}
-              activeOpacity={0.7}
-              style={{
-                backgroundColor: 'rgba(23, 23, 23, 0.8)',
-                width: 40,
-                height: 40,
-                borderRadius: 20,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <View pointerEvents="none">
-                <Info color="white" size={20} />
-              </View>
-            </TouchableOpacity>
+            {/* Right: Info button */}
+            <View className="absolute right-4 top-2">
+              <TouchableOpacity
+                onPress={() => setShowInstructions(true)}
+                activeOpacity={0.7}
+                style={{
+                  backgroundColor: 'rgba(23, 23, 23, 0.8)',
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <View pointerEvents="none">
+                  <Info color="white" size={20} />
+                </View>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Style Swiper - left side */}
@@ -376,7 +359,7 @@ export default function LandingScreen() {
           )}
 
           {/* Bottom Controls */}
-          <View className="pb-6">
+          <View className="pb-2">
             {/* Preset Selector - Centered swipeable */}
             <View className="mb-4">
               <FilterSwiper
@@ -427,7 +410,7 @@ export default function LandingScreen() {
             {/* Account Link - for anonymous users to preserve data across devices */}
             {isAnonymous && (
               <Pressable
-                onPress={() => router.push("/(auth)/sign-in")}
+                onPress={() => router.push("/(app)/profile")}
                 className="self-center mt-5"
               >
                 <Text className="text-white/60 text-sm">
