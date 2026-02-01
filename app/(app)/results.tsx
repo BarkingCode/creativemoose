@@ -24,7 +24,6 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
-  Share,
   TouchableOpacity,
 } from "react-native";
 import { HeaderButton } from "../../components/HeaderButton";
@@ -47,6 +46,12 @@ import { consumeAnonymousCredit } from "../../hooks/useAnonymousCredits";
 import { SkeletonImageCard } from "../../components/SkeletonImageCard";
 import { ImagePreviewModal } from "../../components/ImagePreviewModal";
 import { LoginPromptModal } from "../../components/LoginPromptModal";
+import { shareImage } from "../../lib/sharing";
+import {
+  triggerLightFeedback,
+  triggerSuccessFeedback,
+  triggerErrorFeedback,
+} from "../../lib/haptics";
 import type { PhotoStyleId } from "../../shared/presets";
 
 
@@ -267,6 +272,9 @@ export default function ResultsScreen() {
             return next;
           });
 
+          // Haptic feedback for individual image completion
+          triggerLightFeedback();
+
           return { index, success: true };
         } catch (err: any) {
           console.error(`[ResultsScreen] Image ${index} failed:`, err);
@@ -288,9 +296,19 @@ export default function ResultsScreen() {
       });
 
       // Wait for all to complete (success or failure)
-      await Promise.allSettled(promises);
+      const results = await Promise.allSettled(promises);
 
       console.log("[ResultsScreen] All generation requests completed");
+
+      // Haptic feedback based on overall success/failure
+      const successCount = results.filter(
+        (r) => r.status === "fulfilled" && (r.value as any)?.success
+      ).length;
+      if (successCount > 0) {
+        triggerSuccessFeedback();
+      } else {
+        triggerErrorFeedback();
+      }
 
       // Refresh credits after generation to update UI
       await refreshCredits();
@@ -373,14 +391,14 @@ export default function ResultsScreen() {
       if (imageUri.startsWith("data:")) {
         // Base64 image - save to temp file first
         const base64Data = imageUri.split(",")[1];
-        const file = new File(Paths.cache, `photoapp_${Date.now()}_${index}.png`);
+        const file = new File(Paths.cache, `creative_moose_${Date.now()}_${index}.png`);
         file.write(base64Data, { encoding: "base64" });
         localUri = file.uri;
       } else {
         // URL image - download first
         const file = await File.downloadFileAsync(
           imageUri,
-          new File(Paths.cache, `photoapp_${Date.now()}_${index}.png`),
+          new File(Paths.cache, `creative_moose_${Date.now()}_${index}.png`),
           { idempotent: true }
         );
         localUri = file.uri;
@@ -399,14 +417,7 @@ export default function ResultsScreen() {
   };
 
   const handleShare = async (imageUri: string) => {
-    try {
-      await Share.share({
-        message: "Check out my AI-generated photo from PhotoApp!",
-        url: imageUri,
-      });
-    } catch (err) {
-      console.error("Share error:", err);
-    }
+    await shareImage(imageUri);
   };
 
   /**

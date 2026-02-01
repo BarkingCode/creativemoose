@@ -246,7 +246,8 @@ npx eas build --profile development --platform android
 
 ## Planned Features
 
-- [ ] Push notifications for generation completion
+- [x] Push notifications infrastructure (expo-notifications + useNotifications hook)
+- [ ] Push notifications for generation completion (backend sending)
 - [ ] Image editing/cropping before generation
 - [ ] Favorite images
 - [ ] Download all images as ZIP

@@ -31,9 +31,9 @@ let revenueCatAvailable = true;
 
 // Product ID to credits mapping
 const PRODUCT_CREDITS: Record<string, number> = {
-  'five_token_ios': 5,
-  'ten_token_ios': 10,
-  'twentyfive_token_ios': 25,
+  'five_token_test': 5,      // Testing/Sandbox
+  'five_token_ios': 5,       // iOS Production
+  'five_token_android': 5,   // Android (future)
 };
 
 interface RevenueCatContextType {

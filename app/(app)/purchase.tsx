@@ -34,16 +34,14 @@ import { Sparkles, Zap, Crown, Check, ImageIcon } from "lucide-react-native";
 
 // Fallback packages for when RevenueCat offerings aren't available
 const FALLBACK_PACKAGES = [
-  { id: "five_token_ios", credits: 5, price: "$1.99", popular: false, tier: "starter" },
-  { id: "ten_token_ios", credits: 10, price: "$2.99", popular: true, tier: "popular" },
-  { id: "twentyfive_token_ios", credits: 25, price: "$4.99", popular: false, tier: "pro" },
+  { id: "five_token_ios", credits: 5, price: "$1.99", popular: true, tier: "starter" },
 ];
 
 // Map product IDs to credit amounts and tiers
 const PRODUCT_INFO: Record<string, { credits: number; tier: string }> = {
-  "five_token_ios": { credits: 5, tier: "starter" },
-  "ten_token_ios": { credits: 10, tier: "popular" },
-  "twentyfive_token_ios": { credits: 25, tier: "pro" },
+  "five_token_test": { credits: 5, tier: "starter" },    // Testing/Sandbox
+  "five_token_ios": { credits: 5, tier: "starter" },     // iOS Production
+  "five_token_android": { credits: 5, tier: "starter" }, // Android (future)
 };
 
 // Helper to get product info from various identifier formats
@@ -61,12 +59,6 @@ function getProductInfo(identifier: string, priceString?: string): { credits: nu
   // Fallback based on identifier patterns
   if (identifier.includes("five") || identifier.includes("5")) {
     return { credits: 5, tier: "starter" };
-  }
-  if (identifier.includes("ten") || identifier.includes("10")) {
-    return { credits: 10, tier: "popular" };
-  }
-  if (identifier.includes("twenty") || identifier.includes("25")) {
-    return { credits: 25, tier: "pro" };
   }
   // Price-based fallback (last resort)
   if (priceString) {
@@ -96,7 +88,6 @@ export default function PurchaseScreen() {
     error,
     isAvailable,
     purchasePackage,
-    restorePurchases,
     refreshOfferings,
   } = useRevenueCat();
 
@@ -108,14 +99,10 @@ export default function PurchaseScreen() {
   // Set default selection when offerings load
   useEffect(() => {
     if (offerings?.availablePackages?.length) {
-      // Select the popular package by default, or first available
-      const popularPkg = offerings.availablePackages.find(
-        (pkg) => pkg.product.identifier.includes("ten")
-      );
-      const firstPkg = offerings.availablePackages[0];
-      setSelectedPackageId(popularPkg?.identifier || firstPkg?.identifier || null);
+      // Select the first (and only) package
+      setSelectedPackageId(offerings.availablePackages[0].identifier);
     } else {
-      // Use fallback default (starter tier since that's likely what's configured)
+      // Use fallback default
       setSelectedPackageId("five_token_ios");
     }
   }, [offerings]);
@@ -148,10 +135,6 @@ export default function PurchaseScreen() {
         ]
       );
     }
-  };
-
-  const handleRestore = async () => {
-    await restorePurchases();
   };
 
   // Get packages to display
@@ -352,14 +335,6 @@ export default function PurchaseScreen() {
             </View>
           </View>
 
-          {/* Restore Purchases */}
-          {isAvailable && (
-            <Pressable onPress={handleRestore} className="mt-8 py-2">
-              <Text className="text-white/40 text-center text-sm">
-                Restore Purchases
-              </Text>
-            </Pressable>
-          )}
         </ScrollView>
 
         {/* Fixed Purchase Button */}

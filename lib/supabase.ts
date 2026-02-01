@@ -68,6 +68,8 @@ export interface Profile {
   email: string | null;
   full_name: string | null;
   avatar_url: string | null;
+  push_token: string | null;
+  push_token_updated_at: string | null;
   created_at: string;
   updated_at: string;
 }

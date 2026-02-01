@@ -256,8 +256,8 @@ export default function HomeScreen() {
 
   const renderItem = ({ item }: { item: FeedImage }) => (
     <TouchableOpacity
-      className="overflow-hidden bg-neutral-900"
-      style={{ width: IMAGE_SIZE, marginBottom: 16 }}
+      className="overflow-hidden mb-4"
+      style={{ width: IMAGE_SIZE }}
       onPress={() => handleImagePress(item)}
       activeOpacity={0.9}
     >
@@ -268,7 +268,7 @@ export default function HomeScreen() {
         transition={200}
       />
       {item.user_name && (
-        <View className="flex-row items-center p-2.5 gap-2">
+        <View className="flex-row items-center p-2.5 gap-2 bg-neutral-900">
           <Avatar
             url={item.user_avatar_url}
             name={item.user_name}

@@ -18,9 +18,9 @@ export default function AppLayout() {
   useEffect(() => {
     if (isLoading) return;
 
-    // If not authenticated, redirect to sign-in
+    // If not authenticated, redirect to home (anonymous auth will kick in there)
     if (!user) {
-      router.replace("/(auth)/sign-in");
+      router.replace("/");
     }
   }, [user, isLoading]);
 
@@ -47,6 +47,7 @@ export default function AppLayout() {
       }}
     >
       <Stack.Screen name="generate" />
+      <Stack.Screen name="profile" />
       <Stack.Screen
         name="results"
         options={{ animation: "slide_from_bottom" }}

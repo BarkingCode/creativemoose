@@ -12,6 +12,8 @@
  * Use this after calling reserve-credit to enable parallel image generation.
  * The sessionId ensures only one credit is consumed for all 4 images.
  * The generationId links to the canonical generations record.
+ *
+ * Model: xai/grok-imagine-image/edit (Grok Imagine Edit)
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -22,7 +24,7 @@ import { getPresetPromptWithStyle, type PhotoStyleId } from "../_shared/presets.
 
 const FAL_KEY = Deno.env.get("FAL_KEY");
 const FAL_QUEUE_URL = "https://queue.fal.run";
-const DEFAULT_MODEL = "fal-ai/fast-sdxl/image-to-image";
+const DEFAULT_MODEL = "xai/grok-imagine-image/edit";
 
 // Shorter timeout for single image (30 seconds)
 const MAX_POLL_TIME_MS = 30000;
@@ -220,9 +222,6 @@ interface GenerateSingleRequest {
   sessionId: string;
   variationIndex: number; // 0-3
   model?: string;
-  strength?: number;
-  numInferenceSteps?: number;
-  guidanceScale?: number;
 }
 
 serve(async (req: Request) => {
@@ -258,9 +257,6 @@ serve(async (req: Request) => {
       sessionId,
       variationIndex,
       model = DEFAULT_MODEL,
-      strength = 0.75,
-      numInferenceSteps = 15,
-      guidanceScale = 3.5,
     } = body;
 
     // Validate required fields
@@ -313,13 +309,12 @@ serve(async (req: Request) => {
 
     console.log(`Generating image ${variationIndex} for session ${sessionId} (generation: ${generationId})`);
 
-    // Generate the image
+    // Generate the image using Grok Imagine Edit
     const result = await generateWithPolling(model, {
       image_url: session.imageUrl,
       prompt: finalPrompt,
-      strength,
-      num_inference_steps: numInferenceSteps,
-      guidance_scale: guidanceScale,
+      num_images: 1,
+      output_format: "jpeg",
     });
 
     const imageUrl = extractImageUrl(result);

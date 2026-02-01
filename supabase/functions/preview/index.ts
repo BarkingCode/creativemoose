@@ -5,7 +5,7 @@
  * Returns image URLs with watermarkRequired flag for client-side watermarking.
  * Uses the same variation prompts as authenticated generation for consistency.
  *
- * Model: fal-ai/fast-sdxl/image-to-image (Fast SDXL Image-to-Image)
+ * Model: xai/grok-imagine-image/edit (Grok Imagine Edit)
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -16,9 +16,9 @@ const FAL_KEY = Deno.env.get("FAL_KEY");
 // Use queue.fal.run with polling for reliable async generation
 const FAL_QUEUE_URL = "https://queue.fal.run";
 
-// Default model for image-to-image generation
-// Fast SDXL is much faster than FLUX Dev (~5 sec vs 30+ sec)
-const DEFAULT_MODEL = "fal-ai/fast-sdxl/image-to-image";
+// Default model for image editing
+// Grok Imagine Edit for high-quality image transformations
+const DEFAULT_MODEL = "xai/grok-imagine-image/edit";
 
 // Max wait time for preview generation (50 seconds to fit within 60s Edge Function timeout)
 const MAX_POLL_TIME_MS = 50000;
@@ -163,9 +163,8 @@ serve(async (req: Request) => {
         const result = await generateWithPolling(DEFAULT_MODEL, {
           image_url: imageUrl,
           prompt: `${prompt}, ${variation}`,
-          strength: 0.75,
-          num_inference_steps: 15, // Fewer steps for faster preview
-          guidance_scale: 3.5,
+          num_images: 1,
+          output_format: "jpeg",
         });
 
         const urls = extractImageUrls(result);

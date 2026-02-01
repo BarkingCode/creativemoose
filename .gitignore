@@ -45,3 +45,5 @@ yarn-error.*
 /android
 *.app
 *.dylib
+AuthKey_*.p8
+*.p8

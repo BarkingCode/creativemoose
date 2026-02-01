@@ -1,0 +1,25 @@
+# Native builds (EAS builds these fresh)
+ios/
+android/
+
+# Dependencies (EAS installs these)
+node_modules/
+
+# Git
+.git/
+
+# Keys and secrets
+*.p8
+AuthKey_*.p8
+
+# Local env
+.env.local
+.env*.local
+
+# Build artifacts
+*.ipa
+*.apk
+*.aab
+
+AuthKey_*.p8
+*.p8

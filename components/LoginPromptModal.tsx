@@ -1,15 +1,17 @@
 /**
  * LoginPromptModal Component
  *
- * Simple bottom sheet modal shown when anonymous user exhausts free tries.
+ * Bottom sheet modal shown when anonymous user exhausts free tries.
  * Offers multiple authentication methods:
  * - Google OAuth
  * - Apple OAuth
  * - Email/Password
  * - Magic Link (OTP)
+ *
+ * Uses useAuthFlow hook for shared auth logic.
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect } from "react";
 import {
   View,
   Text,
@@ -20,7 +22,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
   Pressable,
 } from "react-native";
 import Animated, {
@@ -31,7 +32,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Mail, Lock, Sparkles, CheckCircle } from "lucide-react-native";
 import { HeaderButton } from "./HeaderButton";
-import { useAuth } from "../contexts/AuthContext";
+import { useAuthFlow } from "../hooks/useAuthFlow";
 import OTPInput from "./OTPInput";
 
 interface LoginPromptModalProps {
@@ -40,25 +41,37 @@ interface LoginPromptModalProps {
   onSuccess: () => void;
 }
 
-type AuthMode = "options" | "email" | "magiclink" | "otp-verify" | "confirm-email";
-
 export function LoginPromptModal({
   isOpen,
   onClose,
   onSuccess,
 }: LoginPromptModalProps) {
   const insets = useSafeAreaInsets();
-  const { signIn, signUp, signInWithOAuth, signInWithOTP, verifyOTP } = useAuth();
-  const [mode, setMode] = useState<AuthMode>("options");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [isSignUp, setIsSignUp] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [otpCode, setOtpCode] = useState("");
-  const [otpEmail, setOtpEmail] = useState("");
-  const [resendCooldown, setResendCooldown] = useState(0);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const {
+    mode,
+    setMode,
+    email,
+    setEmail,
+    password,
+    setPassword,
+    otpCode,
+    setOtpCode,
+    otpEmail,
+    loading,
+    error,
+    successMessage,
+    resendCooldown,
+    isSignUp,
+    setIsSignUp,
+    handleGoogleSignIn,
+    handleAppleSignIn,
+    handleEmailAuth,
+    handleMagicLink,
+    handleVerifyOTP,
+    handleResendOTP,
+    resetState,
+  } = useAuthFlow({ onSuccess });
 
   // Animation values
   const backdropOpacity = useSharedValue(0);
@@ -67,7 +80,6 @@ export function LoginPromptModal({
 
   useEffect(() => {
     if (isOpen) {
-      // Reset and animate in
       backdropOpacity.value = 0;
       contentOpacity.value = 0;
       contentTranslateY.value = 50;
@@ -89,156 +101,13 @@ export function LoginPromptModal({
     transform: [{ translateY: contentTranslateY.value }],
   }));
 
-  const handleGoogleSignIn = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      await signInWithOAuth("google");
-      onSuccess();
-    } catch (err: any) {
-      setError(err.message || "Google sign-in failed");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAppleSignIn = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      await signInWithOAuth("apple");
-      onSuccess();
-    } catch (err: any) {
-      setError(err.message || "Apple sign-in failed");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleEmailAuth = async () => {
-    if (!email || !password) {
-      setError("Please enter email and password");
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      if (isSignUp) {
-        const { error } = await signUp(email, password);
-        if (error) throw error;
-        Alert.alert(
-          "Check your email",
-          "We sent you a verification link. Please verify your email to continue."
-        );
-      } else {
-        const { error } = await signIn(email, password);
-        if (error) throw error;
-        onSuccess();
-      }
-    } catch (err: any) {
-      setError(err.message || "Authentication failed");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleMagicLink = async () => {
-    if (!email) {
-      setError("Please enter your email");
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const { error, isNewUser } = await signInWithOTP(email);
-      if (error) throw error;
-
-      // Store email for OTP verification
-      setOtpEmail(email);
-
-      if (isNewUser) {
-        // New user - email confirmation link sent
-        setMode("confirm-email");
-      } else {
-        // Existing user - 6-digit OTP code sent
-        setMode("otp-verify");
-        setResendCooldown(60);
-      }
-    } catch (err: any) {
-      setError(err.message || "Failed to send verification code");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerifyOTP = async (code: string) => {
-    if (code.length !== 6) return;
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const { error } = await verifyOTP(otpEmail, code);
-      if (error) throw error;
-      onSuccess();
-    } catch (err: any) {
-      setError(err.message || "Invalid verification code");
-      setOtpCode("");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResendOTP = async () => {
-    if (resendCooldown > 0) return;
-
-    setLoading(true);
-    setError(null);
-    setSuccessMessage(null);
-
-    try {
-      const { error } = await signInWithOTP(otpEmail);
-      if (error) throw error;
-      setResendCooldown(60);
-      setSuccessMessage("Code sent! Check your email.");
-      setTimeout(() => setSuccessMessage(null), 3000);
-    } catch (err: any) {
-      setError(err.message || "Failed to resend code");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Cooldown timer effect
-  useEffect(() => {
-    if (resendCooldown <= 0) return;
-
-    const timer = setInterval(() => {
-      setResendCooldown((prev) => prev - 1);
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [resendCooldown]);
-
   const handleClose = () => {
-    // Animate out
     backdropOpacity.value = withTiming(0, { duration: 200 });
     contentOpacity.value = withTiming(0, { duration: 200 });
     contentTranslateY.value = withTiming(30, { duration: 200 });
 
     setTimeout(() => {
-      setMode("options");
-      setEmail("");
-      setPassword("");
-      setError(null);
-      setOtpCode("");
-      setOtpEmail("");
-      setResendCooldown(0);
-      setSuccessMessage(null);
+      resetState();
       onClose();
     }, 200);
   };
@@ -348,6 +217,7 @@ export function LoginPromptModal({
               Sign up to continue creating AI photos
             </Text>
 
+            {/* Error Message */}
             {error && (
               <View
                 style={{
@@ -363,6 +233,7 @@ export function LoginPromptModal({
               </View>
             )}
 
+            {/* Options Mode */}
             {mode === "options" && (
               <View style={{ gap: 12 }}>
                 {/* Google */}
@@ -457,6 +328,7 @@ export function LoginPromptModal({
               </View>
             )}
 
+            {/* Email Mode */}
             {mode === "email" && (
               <View style={{ gap: 14 }}>
                 <View
@@ -552,6 +424,7 @@ export function LoginPromptModal({
               </View>
             )}
 
+            {/* Magic Link Mode */}
             {mode === "magiclink" && (
               <View style={{ gap: 14 }}>
                 <View
@@ -611,6 +484,7 @@ export function LoginPromptModal({
               </View>
             )}
 
+            {/* OTP Verify Mode */}
             {mode === "otp-verify" && (
               <View style={{ gap: 16 }}>
                 <Text
@@ -669,7 +543,6 @@ export function LoginPromptModal({
                   onPress={() => {
                     setMode("magiclink");
                     setOtpCode("");
-                    setError(null);
                   }}
                   style={{ alignItems: "center", paddingVertical: 8 }}
                   activeOpacity={0.7}
@@ -681,6 +554,7 @@ export function LoginPromptModal({
               </View>
             )}
 
+            {/* Confirm Email Mode */}
             {mode === "confirm-email" && (
               <View style={{ gap: 16, alignItems: "center" }}>
                 <View
@@ -752,10 +626,7 @@ export function LoginPromptModal({
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  onPress={() => {
-                    setMode("magiclink");
-                    setError(null);
-                  }}
+                  onPress={() => setMode("magiclink")}
                   style={{ alignItems: "center", paddingVertical: 8 }}
                   activeOpacity={0.7}
                 >

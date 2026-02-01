@@ -19,7 +19,6 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  Share,
   Dimensions,
 } from "react-native";
 import { Image } from "expo-image";
@@ -35,6 +34,7 @@ import {
 } from "lucide-react-native";
 import { File, Paths } from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
+import { shareImage } from "../lib/sharing";
 
 const { width, height } = Dimensions.get("window");
 
@@ -69,7 +69,7 @@ export default function ImagePreviewScreen() {
       // Download the image
       const file = await File.downloadFileAsync(
         params.imageUrl,
-        new File(Paths.cache, `photoapp_${Date.now()}.png`),
+        new File(Paths.cache, `creative_moose_${Date.now()}.png`),
         { idempotent: true }
       );
 
@@ -124,14 +124,7 @@ export default function ImagePreviewScreen() {
   };
 
   const handleShare = async () => {
-    try {
-      await Share.share({
-        url: params.imageUrl,
-        message: "Check out this AI-generated photo from PhotoApp!",
-      });
-    } catch (error) {
-      console.error("Share error:", error);
-    }
+    await shareImage(params.imageUrl);
   };
 
   const handleDelete = () => {

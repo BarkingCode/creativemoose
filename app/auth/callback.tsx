@@ -110,9 +110,9 @@ export default function AuthCallback() {
         <Text className="text-white/60 text-center mb-6">{error}</Text>
         <Text
           className="text-white underline"
-          onPress={() => router.replace("/(auth)/sign-in")}
+          onPress={() => router.replace("/(tabs)/home")}
         >
-          Back to Sign In
+          Back to Home
         </Text>
       </View>
     );

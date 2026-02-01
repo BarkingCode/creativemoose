@@ -12,7 +12,7 @@ import * as WebBrowser from "expo-web-browser";
 import * as AppleAuthentication from "expo-apple-authentication";
 import { supabase } from "../lib/supabase";
 import { deleteAccount as deleteAccountApi } from "../lib/fal";
-import { clearPersistedOtpState } from "../app/(auth)/sign-in";
+import { clearPersistedOtpState } from "../lib/auth-utils";
 
 interface AuthContextType {
   user: User | null;
@@ -28,6 +28,7 @@ interface AuthContextType {
   verifyOTP: (email: string, token: string) => Promise<{ error: Error | null }>;
   deleteAccount: () => Promise<{ error: Error | null }>;
   linkWithApple: () => Promise<{ error: Error | null }>;
+  linkWithGoogle: () => Promise<{ error: Error | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -329,6 +330,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  /**
+   * Link anonymous account with Google Sign-In
+   * Preserves all data (credits, generations) under the same user ID
+   */
+  const linkWithGoogle = async (): Promise<{ error: Error | null }> => {
+    if (!user?.is_anonymous) {
+      // For non-anonymous users, just sign in with OAuth
+      return signInWithOAuth("google");
+    }
+
+    const redirectUrl = Linking.createURL("auth/callback");
+
+    // Link the anonymous account with Google identity via OAuth flow
+    const { data, error } = await supabase.auth.linkIdentity({
+      provider: "google",
+      options: {
+        skipBrowserRedirect: true,
+        redirectTo: redirectUrl,
+      },
+    });
+
+    if (error) {
+      console.error("[AuthContext] linkWithGoogle error:", error);
+      return { error: error as Error };
+    }
+
+    if (data?.url) {
+      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+
+      if (result.type === "cancel") {
+        return { error: new Error("Authentication cancelled") };
+      }
+    }
+
+    return { error: null };
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -345,6 +383,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         verifyOTP,
         deleteAccount,
         linkWithApple,
+        linkWithGoogle,
       }}
     >
       {children}

@@ -40,7 +40,7 @@ interface SkeletonImageCardProps {
 }
 
 const { width: screenWidth } = Dimensions.get("window");
-const cardWidth = screenWidth - 32; // Full width with padding
+const cardWidth = screenWidth; // Full width edge-to-edge
 
 const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
 
@@ -86,14 +86,6 @@ export function SkeletonImageCard({
   const imageAnimatedStyle = useAnimatedStyle(() => ({
     opacity: imageOpacity.value,
   }));
-
-  // Variation labels for each slot
-  const variationLabels = [
-    "Morning light",
-    "Afternoon glow",
-    "Sunset warmth",
-    "Bright midday",
-  ];
 
   if (error) {
     return (
@@ -153,14 +145,6 @@ export function SkeletonImageCard({
               />
             </Animated.View>
           </View>
-
-          {/* Loading label */}
-          <View style={styles.loadingLabel}>
-            <View style={styles.loadingDot} />
-            <Text style={styles.loadingText}>
-              Generating {variationLabels[index]}...
-            </Text>
-          </View>
         </View>
       </View>
     </View>
@@ -173,7 +157,6 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   card: {
-    borderRadius: 16,
     overflow: "hidden",
     backgroundColor: "#1a1a1a",
   },
@@ -246,29 +229,5 @@ const styles = StyleSheet.create({
   shimmerGradient: {
     width: "100%",
     height: "100%",
-  },
-  loadingLabel: {
-    position: "absolute",
-    bottom: 12,
-    left: 12,
-    right: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.6)",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    gap: 8,
-  },
-  loadingDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#10b981",
-  },
-  loadingText: {
-    color: "#fff",
-    fontSize: 11,
-    fontWeight: "500",
   },
 });
