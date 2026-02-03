@@ -11,7 +11,7 @@
  * - Retry button if authentication fails
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -35,9 +35,21 @@ export function BiometricLockScreen() {
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [authFailed, setAuthFailed] = useState(false);
 
-  // Auto-trigger authentication on mount
+  // Track if we've already auto-triggered for this lock session
+  const hasAutoTriggeredRef = useRef(false);
+
+  // Reset auto-trigger flag when lock state changes
   useEffect(() => {
-    if (isLocked && !isLoading) {
+    if (!isLocked) {
+      hasAutoTriggeredRef.current = false;
+      setAuthFailed(false);
+    }
+  }, [isLocked]);
+
+  // Auto-trigger authentication once when locked
+  useEffect(() => {
+    if (isLocked && !isLoading && !hasAutoTriggeredRef.current && !isAuthenticating) {
+      hasAutoTriggeredRef.current = true;
       handleUnlock();
     }
   }, [isLocked, isLoading]);

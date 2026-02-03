@@ -29,6 +29,24 @@ import { supabase, Credits } from '../lib/supabase';
 // Track if RevenueCat SDK is available (may fail on iOS 26 beta)
 let revenueCatAvailable = true;
 
+/**
+ * Get the appropriate RevenueCat API key based on environment and platform.
+ * Uses __DEV__ (React Native global) to determine if running in development.
+ * - Development: Uses DEV keys (for simulator/sandbox testing)
+ * - Production: Uses PROD keys (for TestFlight/App Store)
+ */
+const getRevenueCatApiKey = (platform: 'ios' | 'android'): string => {
+  if (platform === 'ios') {
+    return __DEV__
+      ? process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY_DEV || ''
+      : process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY_PROD || '';
+  } else {
+    return __DEV__
+      ? process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY_DEV || ''
+      : process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY_PROD || '';
+  }
+};
+
 // Product ID to credits mapping
 const PRODUCT_CREDITS: Record<string, number> = {
   'five_token_test': 5,      // Testing/Sandbox
@@ -79,9 +97,7 @@ export function RevenueCatProvider({ children }: RevenueCatProviderProps) {
     initAttempted.current = true;
 
     const initializeRevenueCat = async () => {
-      const apiKey = Platform.OS === 'ios'
-        ? process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY
-        : process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY;
+      const apiKey = getRevenueCatApiKey(Platform.OS as 'ios' | 'android');
 
       if (!apiKey) {
         console.warn('[RevenueCat] API key not configured');

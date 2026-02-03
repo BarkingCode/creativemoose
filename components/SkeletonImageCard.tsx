@@ -158,7 +158,7 @@ const styles = StyleSheet.create({
   },
   card: {
     overflow: "hidden",
-    backgroundColor: "#1a1a1a",
+    backgroundColor: "#1c1c1c",
   },
   errorCard: {
     aspectRatio: 1,
@@ -212,7 +212,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "#2a2a2a",
+    backgroundColor: "#1c1c1c",
   },
   shimmerMask: {
     position: "absolute",

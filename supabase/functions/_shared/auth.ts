@@ -28,20 +28,32 @@ export async function validateAuth(req: Request): Promise<AuthResult> {
   }
 
   const token = authHeader.replace("Bearer ", "");
-  console.log("[validateAuth] Token length:", token.length);
-  console.log("[validateAuth] Token prefix:", token.substring(0, 50) + "...");
+  console.log("[validateAuth] User token length:", token.length);
+  console.log("[validateAuth] User token prefix:", token.substring(0, 50) + "...");
 
-  // Create Supabase client with the user's token
-  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-    global: {
-      headers: { Authorization: `Bearer ${token}` },
+  // Decode and log JWT payload for debugging (without signature)
+  let jwtPayload: { sub?: string; exp?: number; iss?: string } | null = null;
+  try {
+    jwtPayload = JSON.parse(atob(token.split(".")[1]));
+    console.log("[validateAuth] JWT payload - sub:", jwtPayload?.sub, "exp:", jwtPayload?.exp, "iss:", jwtPayload?.iss);
+  } catch (e) {
+    console.log("[validateAuth] Could not decode JWT payload");
+  }
+
+  // Use service role client to validate user token
+  // This is more reliable than using the anon key
+  const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
     },
   });
 
+  // getUser with token parameter validates the JWT and returns user info
   const {
     data: { user },
     error,
-  } = await supabase.auth.getUser();
+  } = await supabase.auth.getUser(token);
 
   console.log("[validateAuth] getUser result - user:", user?.id, "error:", error?.message);
   console.log("[validateAuth] === END DEBUG ===");

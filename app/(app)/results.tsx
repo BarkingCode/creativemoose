@@ -24,7 +24,6 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
-  TouchableOpacity,
 } from "react-native";
 import { HeaderButton } from "../../components/HeaderButton";
 import { Image } from "expo-image";
@@ -32,7 +31,8 @@ import { File, Paths } from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
 import * as ImageManipulator from "expo-image-manipulator";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import { useAuth } from "../../contexts/AuthContext";
 import { useRevenueCat } from "../../contexts/RevenueCatContext";
 import { supabase } from "../../lib/supabase";
@@ -65,6 +65,7 @@ interface ImageSlot {
 
 export default function ResultsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
     photoUri: string;
     photoBase64?: string;
@@ -452,7 +453,7 @@ export default function ResultsScreen() {
   // Global error state (e.g., auth failure before generation starts)
   if (globalError && !imageSlots.some((slot) => slot.imageUrl || slot.isLoading)) {
     return (
-      <SafeAreaView className="flex-1 bg-background">
+      <View className="flex-1" style={{ backgroundColor: "#121212" }}>
         <View className="flex-1 items-center justify-center px-6">
           <Text className="text-4xl mb-4">😔</Text>
           <Text className="text-white text-xl font-bold text-center">
@@ -470,14 +471,14 @@ export default function ResultsScreen() {
             </Text>
           </Pressable>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   // Credit reservation loading state
   if (isReservingCredit) {
     return (
-      <SafeAreaView className="flex-1 bg-background">
+      <View className="flex-1" style={{ backgroundColor: "#121212" }}>
         <View className="flex-1 items-center justify-center px-6">
           <ActivityIndicator size="large" color="#fff" />
           <Text className="text-white text-xl font-bold mt-6">
@@ -487,34 +488,30 @@ export default function ResultsScreen() {
             Setting up your image generation
           </Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-background">
-      {/* Close button */}
-      <View className="flex-row justify-end px-4 py-2">
-        <HeaderButton
-          variant="close"
-          onPress={() => router.replace(isPreview ? "/" : "/(tabs)/home")}
-        />
-      </View>
+    <View className="flex-1" style={{ backgroundColor: "#121212" }}>
+      {/* Images List - Skeleton + Progressive Loading - Full screen */}
+      <ScrollView
+        className="flex-1"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingTop: insets.top, paddingBottom: 60 + insets.bottom }}
+      >
+        {/* Preview Mode Notice */}
+        {isPreview && (
+          <View className="mx-4 my-4 bg-amber-500/20 rounded-xl p-3">
+            <Text className="text-amber-500 text-center font-medium">
+              Preview Mode
+            </Text>
+            <Text className="text-amber-500/80 text-center text-sm mt-1">
+              Sign up for high-resolution images without watermarks!
+            </Text>
+          </View>
+        )}
 
-      {/* Preview Mode Notice */}
-      {isPreview && (
-        <View className="mx-4 mb-4 bg-amber-500/20 rounded-xl p-3">
-          <Text className="text-amber-500 text-center font-medium">
-            Preview Mode
-          </Text>
-          <Text className="text-amber-500/80 text-center text-sm mt-1">
-            Sign up for high-resolution images without watermarks!
-          </Text>
-        </View>
-      )}
-
-      {/* Images List - Skeleton + Progressive Loading */}
-      <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
         <View>
           {imageSlots.map((slot, index) => {
 
@@ -530,16 +527,16 @@ export default function ResultsScreen() {
                   onRetry={
                     slot.error
                       ? () => {
-                          // Retry would require re-reserving credit, so just prompt to start over
-                          Alert.alert(
-                            "Retry Generation",
-                            "Would you like to try generating again?",
-                            [
-                              { text: "Cancel", style: "cancel" },
-                              { text: "Retry", onPress: runParallelGeneration },
-                            ]
-                          );
-                        }
+                        // Retry would require re-reserving credit, so just prompt to start over
+                        Alert.alert(
+                          "Retry Generation",
+                          "Would you like to try generating again?",
+                          [
+                            { text: "Cancel", style: "cancel" },
+                            { text: "Retry", onPress: runParallelGeneration },
+                          ]
+                        );
+                      }
                       : undefined
                   }
                 />
@@ -550,7 +547,8 @@ export default function ResultsScreen() {
             return (
               <Pressable
                 key={index}
-                className="w-full mb-4"
+                className="w-full"
+                style={{ marginBottom: 16 }}
                 onPress={() => setSelectedImageIndex(index)}
               >
                 <Image
@@ -578,38 +576,32 @@ export default function ResultsScreen() {
         </View>
       </ScrollView>
 
-      {/* Bottom Actions */}
-      <View className="px-4 pb-4">
-        {isPreview ? (
-          <View className="gap-3">
-            <Pressable
-              onPress={() => setShowLoginModal(true)}
-              className="bg-white py-4 rounded-2xl items-center"
-            >
-              <Text className="text-background font-semibold text-lg">
-                Sign Up for More
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => router.replace("/")}
-              className="bg-secondary py-4 rounded-2xl items-center"
-            >
-              <Text className="text-white font-semibold text-lg">
-                Try Another
-              </Text>
-            </Pressable>
-          </View>
-        ) : (
-          <Pressable
-            onPress={() => router.replace("/(app)/generate")}
-            className="bg-white py-4 rounded-2xl items-center"
-          >
-            <Text className="text-background font-semibold text-lg">
-              Generate More
-            </Text>
-          </Pressable>
-        )}
+      {/* Close button - floating over content */}
+      <View
+        className="absolute right-4"
+        style={{ top: insets.top + 8 }}
+      >
+        <HeaderButton
+          variant="close"
+          onPress={() => router.replace(isPreview ? "/" : "/(tabs)/home")}
+        />
       </View>
+
+      {/* Bottom Actions - floating over content with gradient backdrop */}
+
+      <View className="absolute bottom-8 left-4 right-4 px-4">
+
+        <Pressable
+          onPress={() => router.replace("/(app)/generate")}
+          className="bg-white py-4 rounded-2xl items-center"
+        >
+          <Text className="text-background font-semibold text-lg">
+            Generate More
+          </Text>
+        </Pressable>
+
+      </View>
+
 
       {/* Fullscreen Image Preview Modal */}
       <ImagePreviewModal
@@ -652,6 +644,6 @@ export default function ResultsScreen() {
           router.replace("/(tabs)/home");
         }}
       />
-    </SafeAreaView>
+    </View>
   );
 }

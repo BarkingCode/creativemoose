@@ -16,6 +16,7 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useRef,
   ReactNode,
 } from "react";
 import { AppState, AppStateStatus } from "react-native";
@@ -67,6 +68,10 @@ export function BiometricLockProvider({ children }: BiometricLockProviderProps) 
   // Track app state for foreground detection
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
 
+  // Refs to prevent re-locking during authentication
+  const isAuthenticatingRef = useRef(false);
+  const lastBackgroundTimeRef = useRef<number | null>(null);
+
   // Initialize on mount
   useEffect(() => {
     initializeBiometrics();
@@ -105,16 +110,37 @@ export function BiometricLockProvider({ children }: BiometricLockProviderProps) 
 
   /**
    * Handle app state changes (background → foreground)
+   *
+   * Important: Face ID/Touch ID causes app to briefly go "inactive".
+   * We only lock when coming back from true "background" state,
+   * and only if we're not currently authenticating.
    */
   const handleAppStateChange = (nextAppState: AppStateStatus) => {
-    // Lock when coming back from background if enabled
-    if (
-      appState.match(/inactive|background/) &&
-      nextAppState === "active" &&
-      isEnabled
-    ) {
-      setIsLocked(true);
+    // Track when app goes to background (not just inactive)
+    if (nextAppState === "background") {
+      lastBackgroundTimeRef.current = Date.now();
     }
+
+    // Lock when coming back from background if:
+    // 1. Lock is enabled
+    // 2. We're not currently authenticating (prevents loop)
+    // 3. App was truly in background (not just inactive for Face ID)
+    if (
+      nextAppState === "active" &&
+      appState === "background" &&
+      isEnabled &&
+      !isAuthenticatingRef.current &&
+      lastBackgroundTimeRef.current !== null
+    ) {
+      // Only lock if app was in background for more than 1 second
+      // This prevents locking when Face ID briefly backgrounds the app
+      const timeInBackground = Date.now() - lastBackgroundTimeRef.current;
+      if (timeInBackground > 1000) {
+        setIsLocked(true);
+      }
+      lastBackgroundTimeRef.current = null;
+    }
+
     setAppState(nextAppState);
   };
 
@@ -124,16 +150,23 @@ export function BiometricLockProvider({ children }: BiometricLockProviderProps) 
   const unlock = useCallback(async (): Promise<boolean> => {
     if (!isLocked) return true;
 
-    const biometricName = getBiometricName(biometricType);
-    const success = await authenticateWithBiometrics(
-      `Unlock Creative Moose with ${biometricName}`
-    );
+    // Prevent re-locking during authentication
+    isAuthenticatingRef.current = true;
 
-    if (success) {
-      setIsLocked(false);
+    try {
+      const biometricName = getBiometricName(biometricType);
+      const success = await authenticateWithBiometrics(
+        `Unlock Creative Moose with ${biometricName}`
+      );
+
+      if (success) {
+        setIsLocked(false);
+      }
+
+      return success;
+    } finally {
+      isAuthenticatingRef.current = false;
     }
-
-    return success;
   }, [isLocked, biometricType]);
 
   /**
@@ -142,13 +175,18 @@ export function BiometricLockProvider({ children }: BiometricLockProviderProps) 
   const handleSetEnabled = useCallback(async (enabled: boolean) => {
     // If enabling, verify biometrics work first
     if (enabled) {
-      const biometricName = getBiometricName(biometricType);
-      const success = await authenticateWithBiometrics(
-        `Enable ${biometricName} lock`
-      );
-      if (!success) {
-        // User cancelled or auth failed, don't enable
-        return;
+      isAuthenticatingRef.current = true;
+      try {
+        const biometricName = getBiometricName(biometricType);
+        const success = await authenticateWithBiometrics(
+          `Enable ${biometricName} lock`
+        );
+        if (!success) {
+          // User cancelled or auth failed, don't enable
+          return;
+        }
+      } finally {
+        isAuthenticatingRef.current = false;
       }
     }
 
