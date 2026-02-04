@@ -166,6 +166,7 @@ serve(async (req: Request) => {
           prompt: `${prompt}, ${variation}`,
           num_images: 1,
           output_format: "jpeg",
+          aspect_ratio: "1:1",
         });
 
         const urls = extractImageUrls(result);

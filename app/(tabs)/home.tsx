@@ -243,23 +243,10 @@ export default function HomeScreen() {
     }
   };
 
-  const handleImagePress = (image: FeedImage) => {
-    router.push({
-      pathname: "/image-preview",
-      params: {
-        imageId: image.id,
-        imageUrl: image.image_url,
-        isOwner: "false",
-      },
-    });
-  };
-
   const renderItem = ({ item }: { item: FeedImage }) => (
-    <TouchableOpacity
+    <View
       className="overflow-hidden mb-4"
       style={{ width: IMAGE_SIZE }}
-      onPress={() => handleImagePress(item)}
-      activeOpacity={0.9}
     >
       <Image
         source={{ uri: item.image_url }}
@@ -279,7 +266,7 @@ export default function HomeScreen() {
           </Text>
         </View>
       )}
-    </TouchableOpacity>
+    </View>
   );
 
   const renderFooter = () => {

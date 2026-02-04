@@ -23,7 +23,6 @@ import { useIsFocused, useFocusEffect } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
-import * as ImageManipulator from "expo-image-manipulator";
 import { Image } from "expo-image";
 import { useImageTransfer } from "../../contexts/ImageTransferContext";
 import Animated, {
@@ -40,17 +39,6 @@ import { StyleSwiper } from "../../components/StyleSwiper";
 import { FilterSwiper } from "../../components/FilterSwiper";
 import { PRESET_PICKER_OPTIONS, STYLE_PICKER_OPTIONS } from "../../shared/presets";
 
-// Max dimension for API uploads (keeps base64 under ~500KB)
-const MAX_IMAGE_DIMENSION = 1024;
-
-async function resizeImageForUpload(uri: string): Promise<{ uri: string; base64: string }> {
-  const result = await ImageManipulator.manipulateAsync(
-    uri,
-    [{ resize: { width: MAX_IMAGE_DIMENSION } }],
-    { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-  );
-  return { uri: result.uri, base64: result.base64 || "" };
-}
 
 export default function GenerateScreen() {
   const router = useRouter();
@@ -105,23 +93,25 @@ export default function GenerateScreen() {
     );
 
     try {
-      // Capture at lower quality for faster processing
+      // Capture with base64 directly — bypasses ImageManipulator
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.7,
+        base64: true,
       });
 
       if (photo) {
         // Freeze frame immediately after capture
         setFrozenPhotoUri(photo.uri);
 
-        // Resize and store base64 in context before navigating
-        const resized = await resizeImageForUpload(photo.uri);
-        setPendingImage(resized.base64);
+        if (!photo.base64) {
+          throw new Error("Failed to process image");
+        }
+        setPendingImage(photo.base64);
 
         router.push({
           pathname: "/(app)/results",
           params: {
-            photoUri: resized.uri,
+            photoUri: photo.uri,
             presetId: selectedPreset,
             styleId: selectedStyle,
           },
@@ -148,24 +138,31 @@ export default function GenerateScreen() {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
         quality: 0.7,
+        base64: true,
       });
 
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
-        // Resize and store base64 in context before navigating
-        const resized = await resizeImageForUpload(asset.uri);
-        setPendingImage(resized.base64);
+        if (!asset.base64) {
+          throw new Error("Failed to process image");
+        }
+        setPendingImage(asset.base64);
 
         router.push({
           pathname: "/(app)/results",
           params: {
-            photoUri: resized.uri,
+            photoUri: asset.uri,
             presetId: selectedPreset,
             styleId: selectedStyle,
           },
         });
       }
+    } catch (error) {
+      console.error("Failed to pick image:", error);
+      Alert.alert("Error", "Failed to process image. Please try again.");
     } finally {
       setIsPickingImage(false);
     }

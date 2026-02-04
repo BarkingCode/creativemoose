@@ -568,7 +568,7 @@ export default function ResultsScreen() {
       <View className="absolute bottom-8 left-4 right-4 px-4">
 
         <Pressable
-          onPress={() => router.replace("/(app)/generate")}
+          onPress={() => router.replace("/(tabs)/generate")}
           className="bg-white py-4 rounded-2xl items-center"
         >
           <Text className="text-background font-semibold text-lg">
