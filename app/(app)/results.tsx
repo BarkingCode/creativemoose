@@ -29,7 +29,6 @@ import { HeaderButton } from "../../components/HeaderButton";
 import { Image } from "expo-image";
 import { File, Paths } from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
-import * as ImageManipulator from "expo-image-manipulator";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -42,6 +41,7 @@ import {
   generateSingleImage,
   base64ToDataUrl,
 } from "../../lib/fal";
+import { useImageTransfer } from "../../contexts/ImageTransferContext";
 import { consumeAnonymousCredit } from "../../hooks/useAnonymousCredits";
 import { SkeletonImageCard } from "../../components/SkeletonImageCard";
 import { ImagePreviewModal } from "../../components/ImagePreviewModal";
@@ -68,12 +68,12 @@ export default function ResultsScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{
     photoUri: string;
-    photoBase64?: string;
     presetId: string;
     styleId: string;
   }>();
   const { session } = useAuth();
   const { refreshCredits } = useRevenueCat();
+  const { pendingImageBase64, clearPendingImage } = useImageTransfer();
 
   // State for progressive image loading
   const [imageSlots, setImageSlots] = useState<ImageSlot[]>([
@@ -92,7 +92,7 @@ export default function ResultsScreen() {
   const [showLoginModal, setShowLoginModal] = useState(false);
 
   useEffect(() => {
-    if (params.photoBase64 || params.photoUri) {
+    if (params.photoUri) {
       runParallelGeneration();
     }
   }, []);
@@ -121,19 +121,16 @@ export default function ResultsScreen() {
       const presetId = params.presetId || "mapleAutumn";
       const styleId = (params.styleId || "photorealistic") as PhotoStyleId;
 
-      // Get the image as base64 data URL (resize if needed for API upload)
-      let imageBase64 = params.photoBase64 || "";
-      if (!imageBase64 && params.photoUri) {
-        // Resize image for API upload (keeps payload under ~500KB)
-        console.log("[ResultsScreen] Resizing image for upload...");
-        const resized = await ImageManipulator.manipulateAsync(
-          params.photoUri,
-          [{ resize: { width: 1024 } }],
-          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-        );
-        imageBase64 = resized.base64 || "";
-        console.log("[ResultsScreen] Image resized, base64 size:", Math.round(imageBase64.length / 1024), "KB");
+      // Get pre-resized base64 from context (set by generate screen)
+      const imageBase64 = pendingImageBase64;
+      clearPendingImage();
+
+      if (!imageBase64) {
+        console.log("[ResultsScreen] No image data in context");
+        throw new Error("No image data available. Please try again.");
       }
+
+      console.log("[ResultsScreen] Image loaded from context, base64 size:", Math.round(imageBase64.length / 1024), "KB");
 
       const imageUrl = base64ToDataUrl(imageBase64);
 
@@ -203,23 +200,6 @@ export default function ResultsScreen() {
         throw new Error("UNAUTHORIZED");
       }
 
-      // Debug: Log token details
-      console.log("[ResultsScreen] === SESSION DEBUG ===");
-      console.log("[ResultsScreen] User ID:", currentSession.user?.id);
-      console.log("[ResultsScreen] Token expires:", new Date(currentSession.expires_at! * 1000).toISOString());
-      console.log("[ResultsScreen] Token length:", currentSession.access_token?.length);
-      console.log("[ResultsScreen] Token prefix:", currentSession.access_token?.substring(0, 50) + "...");
-      console.log("[ResultsScreen] Refresh token length:", currentSession.refresh_token?.length);
-
-      // Validate token by calling getUser
-      const { data: { user: validatedUser }, error: validateError } = await supabase.auth.getUser();
-      if (validateError || !validatedUser) {
-        console.error("[ResultsScreen] Token validation failed:", validateError);
-        throw new Error("UNAUTHORIZED");
-      }
-      console.log("[ResultsScreen] Token validated, user:", validatedUser.id);
-      console.log("[ResultsScreen] === END DEBUG ===");
-
       // Step 1: Reserve credit
       console.log("[ResultsScreen] Reserving credit...");
       const reserveResult = await reserveCredit(
@@ -240,10 +220,6 @@ export default function ResultsScreen() {
             { sessionId: reserveResult.sessionId, variationIndex: index },
             currentSession
           );
-
-          console.log(`[ResultsScreen] Image ${index} completed:`);
-          console.log(`  - imageUrl: ${result.imageUrl?.substring(0, 100)}...`);
-          console.log(`  - imageId: ${result.imageId}`);
 
           // Validate we actually got an image URL
           if (!result.imageUrl) {
@@ -314,7 +290,7 @@ export default function ResultsScreen() {
       // Refresh credits after generation to update UI
       await refreshCredits();
     } catch (err: any) {
-      console.error("[ResultsScreen] Generation error:", err);
+      console.error("[ResultsScreen] Generation error:", err?.message);
 
       if (err.message === "INSUFFICIENT_CREDITS") {
         Alert.alert(

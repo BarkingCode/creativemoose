@@ -23,7 +23,9 @@ import { useIsFocused, useFocusEffect } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 import { Image } from "expo-image";
+import { useImageTransfer } from "../../contexts/ImageTransferContext";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -38,10 +40,23 @@ import { StyleSwiper } from "../../components/StyleSwiper";
 import { FilterSwiper } from "../../components/FilterSwiper";
 import { PRESET_PICKER_OPTIONS, STYLE_PICKER_OPTIONS } from "../../shared/presets";
 
+// Max dimension for API uploads (keeps base64 under ~500KB)
+const MAX_IMAGE_DIMENSION = 1024;
+
+async function resizeImageForUpload(uri: string): Promise<{ uri: string; base64: string }> {
+  const result = await ImageManipulator.manipulateAsync(
+    uri,
+    [{ resize: { width: MAX_IMAGE_DIMENSION } }],
+    { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+  );
+  return { uri: result.uri, base64: result.base64 || "" };
+}
+
 export default function GenerateScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { credits, refreshCredits } = useRevenueCat();
+  const { setPendingImage } = useImageTransfer();
   const cameraRef = useRef<CameraView>(null);
   const isFocused = useIsFocused();
 
@@ -99,11 +114,14 @@ export default function GenerateScreen() {
         // Freeze frame immediately after capture
         setFrozenPhotoUri(photo.uri);
 
-        // Navigate immediately - results screen will handle resize
+        // Resize and store base64 in context before navigating
+        const resized = await resizeImageForUpload(photo.uri);
+        setPendingImage(resized.base64);
+
         router.push({
           pathname: "/(app)/results",
           params: {
-            photoUri: photo.uri,
+            photoUri: resized.uri,
             presetId: selectedPreset,
             styleId: selectedStyle,
           },
@@ -135,11 +153,14 @@ export default function GenerateScreen() {
 
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
-        // Navigate immediately - results screen will handle resize
+        // Resize and store base64 in context before navigating
+        const resized = await resizeImageForUpload(asset.uri);
+        setPendingImage(resized.base64);
+
         router.push({
           pathname: "/(app)/results",
           params: {
-            photoUri: asset.uri,
+            photoUri: resized.uri,
             presetId: selectedPreset,
             styleId: selectedStyle,
           },

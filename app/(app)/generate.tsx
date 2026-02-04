@@ -23,6 +23,7 @@ import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { Image } from "expo-image";
+import { useImageTransfer } from "../../contexts/ImageTransferContext";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -56,6 +57,7 @@ export default function GenerateScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { credits } = useRevenueCat();
+  const { setPendingImage } = useImageTransfer();
   const cameraRef = useRef<CameraView>(null);
 
   const [permission, requestPermission] = useCameraPermissions();
@@ -100,12 +102,13 @@ export default function GenerateScreen() {
         const resized = await resizeImageForUpload(photo.uri);
         console.log("[GenerateScreen] Image resized, base64 size:", Math.round(resized.base64.length / 1024), "KB");
 
-        // Navigate to results with resized photo data
+        // Store base64 in memory (too large for URL params)
+        setPendingImage(resized.base64);
+
         router.replace({
           pathname: "/(app)/results",
           params: {
             photoUri: resized.uri,
-            photoBase64: resized.base64,
             presetId: selectedPreset,
             styleId: selectedStyle,
           },
@@ -140,11 +143,13 @@ export default function GenerateScreen() {
         const resized = await resizeImageForUpload(asset.uri);
         console.log("[GenerateScreen] Image resized, base64 size:", Math.round(resized.base64.length / 1024), "KB");
 
+        // Store base64 in memory (too large for URL params)
+        setPendingImage(resized.base64);
+
         router.replace({
           pathname: "/(app)/results",
           params: {
             photoUri: resized.uri,
-            photoBase64: resized.base64,
             presetId: selectedPreset,
             styleId: selectedStyle,
           },

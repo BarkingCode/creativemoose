@@ -63,7 +63,6 @@ export default function ResultsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
     photoUri: string;
-    photoBase64?: string;
     presetId: string;
     styleId: string;
   }>();
@@ -86,7 +85,7 @@ export default function ResultsScreen() {
   );
 
   useEffect(() => {
-    if (params.photoBase64 || params.photoUri) {
+    if (params.photoUri) {
       runGeneration();
     }
   }, []);
@@ -114,19 +113,13 @@ export default function ResultsScreen() {
       const presetId = params.presetId || "mapleAutumn";
       const styleId = (params.styleId || "photorealistic") as PhotoStyleId;
 
-      // Get the image as base64 data URL (resize if needed for API upload)
-      let imageBase64 = params.photoBase64 || "";
-      if (!imageBase64 && params.photoUri) {
-        // Resize image for API upload (keeps payload under ~500KB)
-        console.log("[ResultsScreen] Resizing image for upload...");
-        const resized = await ImageManipulator.manipulateAsync(
-          params.photoUri,
-          [{ resize: { width: 1024 } }],
-          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-        );
-        imageBase64 = resized.base64 || "";
-        console.log("[ResultsScreen] Image resized, base64 size:", Math.round(imageBase64.length / 1024), "KB");
-      }
+      // Resize image for API upload (keeps payload under ~500KB)
+      const resized = await ImageManipulator.manipulateAsync(
+        params.photoUri!,
+        [{ resize: { width: 1024 } }],
+        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      );
+      const imageBase64 = resized.base64 || "";
 
       const imageUrl = base64ToDataUrl(imageBase64);
 
@@ -137,48 +130,16 @@ export default function ResultsScreen() {
       }
 
       // Force refresh the session to get a fresh JWT
-      console.log("[ResultsScreen] Refreshing session...");
       const {
         data: { session: currentSession },
         error: refreshError,
       } = await supabase.auth.refreshSession();
-
-      console.log("[ResultsScreen] Refresh result:", {
-        hasSession: !!currentSession,
-        error: refreshError?.message,
-        tokenLength: currentSession?.access_token?.length,
-        tokenPrefix: currentSession?.access_token?.substring(0, 20),
-      });
 
       if (refreshError || !currentSession) {
         console.error("[ResultsScreen] Session refresh failed:", refreshError);
         setGlobalError("Your session has expired. Please restart the app.");
         return;
       }
-
-      // Debug: Log token details
-      console.log("[ResultsScreen] === SESSION DEBUG ===");
-      console.log("[ResultsScreen] User ID:", currentSession.user?.id);
-      console.log(
-        "[ResultsScreen] Token expires:",
-        new Date(currentSession.expires_at! * 1000).toISOString()
-      );
-      console.log(
-        "[ResultsScreen] Token length:",
-        currentSession.access_token?.length
-      );
-      console.log("[ResultsScreen] === END DEBUG ===");
-
-      // Validate token by calling getUser
-      const {
-        data: { user: validatedUser },
-        error: validateError,
-      } = await supabase.auth.getUser();
-      if (validateError || !validatedUser) {
-        console.error("[ResultsScreen] Token validation failed:", validateError);
-        throw new Error("UNAUTHORIZED");
-      }
-      console.log("[ResultsScreen] Token validated, user:", validatedUser.id);
 
       // Step 1: Reserve credit
       console.log("[ResultsScreen] Reserving credit...");
@@ -203,10 +164,6 @@ export default function ResultsScreen() {
             { sessionId: reserveResult.sessionId, variationIndex: index },
             currentSession
           );
-
-          console.log(`[ResultsScreen] Image ${index} completed:`);
-          console.log(`  - imageUrl: ${result.imageUrl?.substring(0, 100)}...`);
-          console.log(`  - imageId: ${result.imageId}`);
 
           // Validate we actually got an image URL
           if (!result.imageUrl) {

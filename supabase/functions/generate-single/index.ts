@@ -13,7 +13,7 @@
  * The sessionId ensures only one credit is consumed for all 4 images.
  * The generationId links to the canonical generations record.
  *
- * Model: xai/grok-imagine-image/edit (Grok Imagine Edit)
+ * Model: fal-ai/kling-image/v3/image-to-image (Kling Image v3)
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -24,11 +24,12 @@ import { getPresetPromptWithStyle, type PhotoStyleId } from "../_shared/presets.
 
 const FAL_KEY = Deno.env.get("FAL_KEY");
 const FAL_QUEUE_URL = "https://queue.fal.run";
-const DEFAULT_MODEL = "xai/grok-imagine-image/edit";
+const DEFAULT_MODEL = "fal-ai/kling-image/v3/image-to-image";
 
-// Shorter timeout for single image (30 seconds)
-const MAX_POLL_TIME_MS = 30000;
-const POLL_INTERVAL_MS = 1000;
+// Kling v3 image-to-image typically takes 60-90 seconds
+// Supabase Edge Functions have a 150s wall-clock limit on all plans
+const MAX_POLL_TIME_MS = 120000;
+const POLL_INTERVAL_MS = 2000;
 
 interface FalQueueResponse {
   status: string;
@@ -309,7 +310,7 @@ serve(async (req: Request) => {
 
     console.log(`Generating image ${variationIndex} for session ${sessionId} (generation: ${generationId})`);
 
-    // Generate the image using Grok Imagine Edit
+    // Generate the image using Kling Image v3
     const result = await generateWithPolling(model, {
       image_url: session.imageUrl,
       prompt: finalPrompt,

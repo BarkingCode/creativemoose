@@ -16,6 +16,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "../contexts/AuthContext";
 import { RevenueCatProvider } from "../contexts/RevenueCatContext";
+import { ImageTransferProvider } from "../contexts/ImageTransferContext";
 import { BiometricLockProvider } from "../contexts/BiometricLockContext";
 import { BiometricLockScreen } from "../components/BiometricLockScreen";
 import { useAppUpdates } from "../hooks/useAppUpdates";
@@ -69,22 +70,24 @@ export default function RootLayout() {
           <AuthProvider>
             <NotificationHandler>
               <RevenueCatProvider>
-                <BiometricLockProvider>
-                  <StatusBar style="light" />
-                  <Stack
-                    screenOptions={{
-                      headerShown: false,
-                      contentStyle: { backgroundColor: "#0f0a0a" },
-                      animation: "slide_from_right",
-                    }}
-                  >
-                    <Stack.Screen name="index" />
-                    <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-                    <Stack.Screen name="(app)" options={{ headerShown: false }} />
-                  </Stack>
-                  {/* Biometric lock overlay - renders on top of everything */}
-                  <BiometricLockScreen />
-                </BiometricLockProvider>
+                <ImageTransferProvider>
+                  <BiometricLockProvider>
+                    <StatusBar style="light" />
+                    <Stack
+                      screenOptions={{
+                        headerShown: false,
+                        contentStyle: { backgroundColor: "#0f0a0a" },
+                        animation: "slide_from_right",
+                      }}
+                    >
+                      <Stack.Screen name="index" />
+                      <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+                      <Stack.Screen name="(app)" options={{ headerShown: false }} />
+                    </Stack>
+                    {/* Biometric lock overlay - renders on top of everything */}
+                    <BiometricLockScreen />
+                  </BiometricLockProvider>
+                </ImageTransferProvider>
               </RevenueCatProvider>
             </NotificationHandler>
           </AuthProvider>

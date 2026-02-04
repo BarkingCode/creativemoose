@@ -5,7 +5,7 @@
  * Returns image URLs with watermarkRequired flag for client-side watermarking.
  * Uses the same variation prompts as authenticated generation for consistency.
  *
- * Model: xai/grok-imagine-image/edit (Grok Imagine Edit)
+ * Model: fal-ai/kling-image/v3/image-to-image (Kling Image v3)
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -17,12 +17,13 @@ const FAL_KEY = Deno.env.get("FAL_KEY");
 const FAL_QUEUE_URL = "https://queue.fal.run";
 
 // Default model for image editing
-// Grok Imagine Edit for high-quality image transformations
-const DEFAULT_MODEL = "xai/grok-imagine-image/edit";
+// Kling Image v3 for high-quality image transformations
+const DEFAULT_MODEL = "fal-ai/kling-image/v3/image-to-image";
 
-// Max wait time for preview generation (50 seconds to fit within 60s Edge Function timeout)
-const MAX_POLL_TIME_MS = 50000;
-const POLL_INTERVAL_MS = 1500;
+// Kling v3 image-to-image typically takes 60-90 seconds
+// Supabase Edge Functions have a 150s wall-clock limit on all plans
+const MAX_POLL_TIME_MS = 120000;
+const POLL_INTERVAL_MS = 2000;
 
 interface FalQueueResponse {
   status: string;
