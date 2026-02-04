@@ -46,7 +46,6 @@ export default function AppLayout() {
         animation: "fade",
       }}
     >
-      <Stack.Screen name="generate" />
       <Stack.Screen name="profile" />
       <Stack.Screen
         name="results"

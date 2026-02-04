@@ -68,10 +68,12 @@ EXPO_PUBLIC_REVENUECAT_ANDROID_KEY=
 ```
 app/
 ├── _layout.tsx          # Root: AuthProvider + RevenueCatProvider
-├── index.tsx            # Entry: redirects based on auth state
+├── index.tsx            # Entry: splash screen + redirect to (tabs)/home
 ├── (auth)/              # Auth screens (sign-in, sign-up)
 ├── (tabs)/              # Main tab navigation (home, generate, gallery)
+│   └── generate.tsx     # Single camera screen for all users
 └── (app)/               # Full-screen flows (results, purchase, profile)
+    └── results.tsx      # Single results screen (handles auth internally)
 ```
 
 ### Context Providers (in `contexts/`)
@@ -81,14 +83,14 @@ app/
 
 ### Image Generation Flow
 
-**Parallel Generation (Authenticated Users):**
+All users flow through: `(tabs)/generate` → capture/pick → `(app)/results`
+
+**Generation (all users with credits):**
 1. `reserveCredit()` → Creates `generations` + `generation_sessions` records, returns `sessionId`
 2. `generateSingleImage()` x4 in parallel → Each uses `sessionId`, creates `images` record
 3. Images stored in Supabase Storage, URLs in `generations.image_urls`
 
-**Preview Mode (Anonymous Users):**
-1. `generatePreview()` → Rate-limited by IP (1/day), returns watermarked image
-2. No database persistence, no credits required
+Anonymous vs authenticated distinction is handled internally by `(app)/results.tsx`.
 
 ### Supabase Edge Functions (in `supabase/functions/`)
 
