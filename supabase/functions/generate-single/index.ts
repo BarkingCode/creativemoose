@@ -13,18 +13,18 @@
  * The sessionId ensures only one credit is consumed for all 4 images.
  * The generationId links to the canonical generations record.
  *
- * Model: fal-ai/kling-image/v3/image-to-image (Kling Image v3)
+ * Models: Kling (photorealistic/cinematic/vintage) or Nano Banana Pro (cartoon/painting/watercolor)
+ * Model selection is automatic based on the style chosen by the user.
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { corsHeaders, handleCors } from "../_shared/cors.ts";
 import { validateAuth, createServiceClient } from "../_shared/auth.ts";
 import { validateAndUseSession, updateGenerationImages } from "../_shared/credits.ts";
-import { getPresetPromptWithStyle, type PhotoStyleId } from "../_shared/presets.ts";
+import { getPresetPromptWithStyle, getModelForStyle, buildModelParams, type PhotoStyleId } from "../_shared/presets.ts";
 
 const FAL_KEY = Deno.env.get("FAL_KEY");
 const FAL_QUEUE_URL = "https://queue.fal.run";
-const DEFAULT_MODEL = "fal-ai/kling-image/v3/image-to-image";
 
 // Kling v3 image-to-image typically takes 60-90 seconds
 // Supabase Edge Functions have a 150s wall-clock limit on all plans
@@ -222,7 +222,6 @@ async function persistImage(
 interface GenerateSingleRequest {
   sessionId: string;
   variationIndex: number; // 0-3
-  model?: string;
 }
 
 serve(async (req: Request) => {
@@ -254,11 +253,7 @@ serve(async (req: Request) => {
 
     // Parse request body
     const body: GenerateSingleRequest = await req.json();
-    const {
-      sessionId,
-      variationIndex,
-      model = DEFAULT_MODEL,
-    } = body;
+    const { sessionId, variationIndex } = body;
 
     // Validate required fields
     if (!sessionId || variationIndex === undefined) {
@@ -308,16 +303,13 @@ serve(async (req: Request) => {
     // Combine with variation
     const finalPrompt = `${basePrompt}, ${variationPrompt}`;
 
-    console.log(`Generating image ${variationIndex} for session ${sessionId} (generation: ${generationId})`);
+    // Route to the correct model based on style
+    const modelConfig = getModelForStyle(session.styleId as PhotoStyleId);
+    console.log(`Generating image ${variationIndex} for session ${sessionId} (generation: ${generationId}) using model: ${modelConfig.modelId}`);
 
-    // Generate the image using Kling Image v3
-    const result = await generateWithPolling(model, {
-      image_url: session.imageUrl,
-      prompt: finalPrompt,
-      num_images: 1,
-      output_format: "jpeg",
-      aspect_ratio: "1:1",
-    });
+    // Build model-specific params (handles image_url vs image_urls)
+    const modelParams = buildModelParams(modelConfig, session.imageUrl, finalPrompt);
+    const result = await generateWithPolling(modelConfig.modelId, modelParams);
 
     const imageUrl = extractImageUrl(result);
 

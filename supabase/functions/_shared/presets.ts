@@ -16,6 +16,28 @@ export type PhotoStyleId =
   | "oilPainting"
   | "watercolor";
 
+export type ModelId =
+  | "fal-ai/kling-image/v3/image-to-image"
+  | "fal-ai/nano-banana-pro/edit";
+
+export interface ModelConfig {
+  modelId: ModelId;
+  imageParamFormat: "image_url" | "image_urls";
+  defaults: Record<string, unknown>;
+}
+
+export const KLING_MODEL: ModelConfig = {
+  modelId: "fal-ai/kling-image/v3/image-to-image",
+  imageParamFormat: "image_url",
+  defaults: { num_images: 1, output_format: "jpeg", aspect_ratio: "1:1" },
+};
+
+export const NANO_BANANA_MODEL: ModelConfig = {
+  modelId: "fal-ai/nano-banana-pro/edit",
+  imageParamFormat: "image_urls",
+  defaults: { num_images: 1, output_format: "jpeg", aspect_ratio: "1:1" },
+};
+
 export interface Preset {
   id: string;
   name: string;
@@ -26,20 +48,23 @@ export interface Preset {
   type: "image" | "video";
 }
 
-// Base instruction for face/identity preservation - applies to ALL generations
+// Face preservation for image-to-image models (Kling) — references "reference image"
 const facePreservationBase = `Preserve the exact face from the reference image — same person, recognizable features. Generate their body, clothing, and pose naturally to fit the scene. Adapt outfit for the environment (warm layers for cold, etc.) and use natural body language. Do not warp or distort the face, but allow natural lighting and angle adjustments.`;
 
-const photoRealisticStyle = `The person is in a Canadian setting, natural composition, make the person look happy and relaxed, friendly atmosphere, realistic photo, high-resolution, cinematic detail, even lighting preserving all facial features, natural confident expression, photorealistic portrait quality, be creative. Do not just place the persons face to the picture. Blend the person into the picture with right proportions.`;
+// Face preservation for edit models (Nano Banana) — references "input image"
+const facePreservationEdit = `Preserve the exact face from the input image — same person, recognizable features. Generate their body, clothing, and pose naturally to fit the scene. Adapt outfit for the environment (warm layers for cold, etc.) and use natural body language. Do not warp or distort the face, but allow natural lighting and angle adjustments.`;
 
-const cartoonStyle = `The person is in a Canadian setting, vibrant cartoon illustration style, animated character design, make the person look happy and cheerful, friendly atmosphere, colorful and expressive, high-quality digital art, even lighting preserving all facial features, natural confident expression, cartoon portrait quality with clean lines and bold colors, be creative. Do not just place the persons face to the picture. Blend the person into the cartoon scene with right proportions and consistent art style.`;
+const photoRealisticStyle = `The person is in an iconic Canadian landscape — the turquoise lakes of Banff, Rocky Mountain peaks, Maritime coastlines, Parliament Hill, CN Tower skyline, or maple-lined country roads. Natural composition, make the person look happy and relaxed, friendly atmosphere, realistic photo, high-resolution, cinematic detail, even lighting preserving all facial features, natural confident expression, photorealistic portrait quality, be creative. Do not just place the persons face to the picture. Blend the person into the picture with right proportions.`;
 
-const vintage50sStyle = `The person is in a Canadian setting with authentic 1950s vintage aesthetic, retro color grading with slightly faded warm tones, subtle film grain and vignette, period-appropriate styling, nostalgic atmosphere, vintage photo quality resembling old photographs from the era, natural happy expression, friendly atmosphere, be creative. Do not just place the persons face to the picture. Blend the person into the vintage scene with right proportions and authentic period feel.`;
+const cartoonStyle = `The person is in a vibrant Canadian cartoon world — friendly Mounties in the background, cheerful moose and beavers as sidekicks, Tim Hortons-style cafés, totem poles, maple leaf banners, and quirky Canadian landmarks. Vibrant cartoon illustration style, animated character design, make the person look happy and cheerful, friendly atmosphere, colorful and expressive, high-quality digital art, even lighting preserving all facial features, natural confident expression, cartoon portrait quality with clean lines and bold colors, be creative. Do not just place the persons face to the picture. Blend the person into the cartoon scene with right proportions and consistent art style.`;
 
-const cinematicStyle = `The person is in a Canadian setting with dramatic cinematic look, moody atmospheric lighting, rich color grading with deep shadows and highlights, film-like quality with shallow depth of field, epic composition, movie poster aesthetic, professional color correction, natural confident expression, friendly atmosphere, be creative. Do not just place the persons face to the picture. Blend the person into the cinematic scene with right proportions and dramatic impact.`;
+const vintage50sStyle = `The person is in a 1950s Canadian scene — retro diners with bilingual English-French signs, Canadian Pacific Railway stations, classic ski lodges in the Laurentians, period Montreal or Toronto streetscapes, vintage Hudson's Bay Company storefronts. Authentic 1950s vintage aesthetic, retro color grading with slightly faded warm tones, subtle film grain and vignette, period-appropriate styling, nostalgic atmosphere, vintage photo quality resembling old photographs from the era, natural happy expression, friendly atmosphere, be creative. Do not just place the persons face to the picture. Blend the person into the vintage scene with right proportions and authentic period feel.`;
 
-const oilPaintingStyle = `The person is in a Canadian setting rendered as a classical oil painting, visible brush strokes and rich texture, traditional painting techniques, warm color palette with depth, artistic interpretation while maintaining likeness, museum-quality portrait style, natural happy expression, friendly atmosphere, fine art quality, be creative. Do not just place the persons face to the picture. Blend the person into the painted scene with right proportions and artistic style.`;
+const cinematicStyle = `The person is in a dramatic Canadian setting — vast Rocky Mountain ranges, misty Pacific Northwest rainforests, frozen Arctic tundra, stormy Atlantic coastlines, or moody urban cityscapes of Vancouver, Montreal, or Toronto at night. Dramatic cinematic look, moody atmospheric lighting, rich color grading with deep shadows and highlights, film-like quality with shallow depth of field, epic composition, movie poster aesthetic, professional color correction, natural confident expression, friendly atmosphere, be creative. Do not just place the persons face to the picture. Blend the person into the cinematic scene with right proportions and dramatic impact.`;
 
-const watercolorStyle = `The person is in a Canadian setting painted in soft watercolor technique, delicate color washes and gentle blending, translucent layers with artistic flow, light and airy atmosphere, painterly edges and soft details, natural happy expression, friendly atmosphere, fine watercolor art quality, be creative. Do not just place the persons face to the picture. Blend the person into the watercolor scene with right proportions and artistic style.`;
+const oilPaintingStyle = `The person is in a Canadian wilderness scene inspired by the Group of Seven — bold autumn forests with fiery reds and oranges, northern lakes reflecting dramatic skies, rugged Canadian Shield rock formations, windswept Georgian Bay pines, and vivid prairie sunsets. Rendered as a classical oil painting, visible brush strokes and rich texture, traditional painting techniques, warm color palette with depth, artistic interpretation while maintaining likeness, museum-quality portrait style, natural happy expression, friendly atmosphere, fine art quality, be creative. Do not just place the persons face to the picture. Blend the person into the painted scene with right proportions and artistic style.`;
+
+const watercolorStyle = `The person is in a dreamy Canadian scene — misty Muskoka lakes at dawn, Vancouver cherry blossoms in spring, Quebec City rooftops during gentle snowfall, Prairie wildflower meadows stretching to the horizon, or Prince Edward Island red shorelines. Painted in soft watercolor technique, delicate color washes and gentle blending, translucent layers with artistic flow, light and airy atmosphere, painterly edges and soft details, natural happy expression, friendly atmosphere, fine watercolor art quality, be creative. Do not just place the persons face to the picture. Blend the person into the watercolor scene with right proportions and artistic style.`;
 
 const styleMap: Record<PhotoStyleId, string> = {
   photorealistic: photoRealisticStyle,
@@ -49,6 +74,33 @@ const styleMap: Record<PhotoStyleId, string> = {
   oilPainting: oilPaintingStyle,
   watercolor: watercolorStyle,
 };
+
+const styleModelMap: Record<PhotoStyleId, ModelConfig> = {
+  photorealistic: KLING_MODEL,
+  cinematic: KLING_MODEL,
+  vintage50s: KLING_MODEL,
+  cartoon: NANO_BANANA_MODEL,
+  oilPainting: NANO_BANANA_MODEL,
+  watercolor: NANO_BANANA_MODEL,
+};
+
+export function getModelForStyle(styleId: PhotoStyleId): ModelConfig {
+  return styleModelMap[styleId] || KLING_MODEL;
+}
+
+export function buildModelParams(
+  modelConfig: ModelConfig,
+  imageUrl: string,
+  prompt: string
+): Record<string, unknown> {
+  const params: Record<string, unknown> = { ...modelConfig.defaults, prompt };
+  if (modelConfig.imageParamFormat === "image_urls") {
+    params.image_urls = [imageUrl];
+  } else {
+    params.image_url = imageUrl;
+  }
+  return params;
+}
 
 export const PRESETS: Record<string, Preset> = {
   mapleAutumn: {
@@ -121,7 +173,7 @@ export const PRESETS: Record<string, Preset> = {
     description: "Funny and surreal wildlife interactions in Canadian settings",
     requiresRefs: false,
     type: "image",
-    prompt: `Create hilarious and surreal scenes with the person interacting with Canadian wildlife in unexpected and comedic ways. Feature iconic animals - moose, beavers, bears, raccoons, geese - in absurd but photorealistic situations. Imagine creative scenarios like playing sports together, sharing meals, outdoor adventures, or everyday activities. Vary the settings from wilderness to urban to recreational areas. Use good lighting and realistic rendering while embracing the humor and whimsy. Make each generation uniquely funny with different animals, activities, and comedic situations. Keep it charming and heartwarming while capturing the playful side of Canadian wildlife encounters.`,
+    prompt: `Create hilarious and surreal scenes with the person surrounded by a GROUP of 3 to 5 DIFFERENT Canadian animals together in one image — MULTIPLE animals are REQUIRED. Include a mix from: a towering moose (much taller than the person), a knee-height beaver, a person-sized black bear, a cat-sized raccoon, and waist-height Canada geese. All animals must be anatomically correct with realistic proportions relative to each other and the person. Show them in fun group activities — playing hockey together on a frozen pond, gathered around a campfire roasting marshmallows, paddling canoes in a line, having a picnic with poutine, or doing a group photo at a National Park sign. Vary the settings from wilderness to urban to recreational areas. Use good lighting and realistic rendering while embracing the humor and whimsy. Make each generation uniquely funny with different animal combinations, group activities, and comedic situations. Keep it charming and heartwarming while capturing the playful side of Canadian wildlife encounters. IMPORTANT: Always show MULTIPLE different animals together, never just one animal.`,
   },
   ehEdition: {
     id: "ehEdition",
@@ -170,6 +222,11 @@ export function getPresetPromptWithStyle(
   }
 
   const selectedStyle = styleMap[styleId] || photoRealisticStyle;
-  // Combine: face preservation base + style + preset scene
-  return `${facePreservationBase} ${selectedStyle}. ${preset.prompt}`;
+  const modelConfig = getModelForStyle(styleId);
+  // Use edit-model face preservation for Nano Banana, reference-model for Kling
+  const faceInstruction =
+    modelConfig.imageParamFormat === "image_urls"
+      ? facePreservationEdit
+      : facePreservationBase;
+  return `${faceInstruction} ${selectedStyle}. ${preset.prompt}`;
 }

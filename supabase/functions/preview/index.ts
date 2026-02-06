@@ -5,20 +5,16 @@
  * Returns image URLs with watermarkRequired flag for client-side watermarking.
  * Uses the same variation prompts as authenticated generation for consistency.
  *
- * Model: fal-ai/kling-image/v3/image-to-image (Kling Image v3)
+ * Models: Kling (photorealistic/cinematic/vintage) or Nano Banana Pro (cartoon/painting/watercolor)
+ * Model selection is automatic based on the style chosen.
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { corsHeaders, handleCors } from "../_shared/cors.ts";
-import { getPresetPromptWithStyle, type PhotoStyleId } from "../_shared/presets.ts";
+import { getPresetPromptWithStyle, getModelForStyle, buildModelParams, type PhotoStyleId } from "../_shared/presets.ts";
 
 const FAL_KEY = Deno.env.get("FAL_KEY");
-// Use queue.fal.run with polling for reliable async generation
 const FAL_QUEUE_URL = "https://queue.fal.run";
-
-// Default model for image editing
-// Kling Image v3 for high-quality image transformations
-const DEFAULT_MODEL = "fal-ai/kling-image/v3/image-to-image";
 
 // Kling v3 image-to-image typically takes 60-90 seconds
 // Supabase Edge Functions have a 150s wall-clock limit on all plans
@@ -156,18 +152,15 @@ serve(async (req: Request) => {
       "bright midday, clear crisp light",
     ];
 
-    // Generate 4 preview images in parallel
-    console.log("Starting parallel generation of 4 preview images...");
+    // Route to the correct model based on style
+    const modelConfig = getModelForStyle(styleId);
+    console.log(`Starting parallel generation of 4 preview images using model: ${modelConfig.modelId}`);
 
     const generationPromises = variations.map(async (variation, index) => {
       try {
-        const result = await generateWithPolling(DEFAULT_MODEL, {
-          image_url: imageUrl,
-          prompt: `${prompt}, ${variation}`,
-          num_images: 1,
-          output_format: "jpeg",
-          aspect_ratio: "1:1",
-        });
+        const variationPrompt = `${prompt}, ${variation}`;
+        const modelParams = buildModelParams(modelConfig, imageUrl, variationPrompt);
+        const result = await generateWithPolling(modelConfig.modelId, modelParams);
 
         const urls = extractImageUrls(result);
         console.log(`Preview image ${index} generated successfully`);
